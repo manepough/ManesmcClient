@@ -267,36 +267,94 @@ class RelaySession {
 
 object ManesRelay {
     @Volatile var active: RelaySession? = null
+
     fun start(remoteIp: String, remotePort: Int) {
         stop()
         val ses = RelaySession().also { active = it }
         val lg = io.netty.channel.nio.NioEventLoopGroup()
+
         val pong = org.cloudburstmc.protocol.bedrock.BedrockPong()
-            .edition("MCPE").motd("Manes").subMotd("Manes").playerCount(0)
-            .maximumPlayerCount(1).gameType("Survival").protocolVersion(818).version("1.21.80")
+            .edition("MCPE").motd("Manes").subMotd("Manes")
+            .playerCount(0).maximumPlayerCount(1)
+            .gameType("Survival").protocolVersion(818).version("1.21.80")
+
         io.netty.bootstrap.ServerBootstrap()
-            .channelFactory(org.cloudburstmc.netty.channel.raknet.RakChannelFactory.server(lg))
+            .channelFactory(
+                org.cloudburstmc.netty.channel.raknet.RakChannelFactory.server(
+                    io.netty.channel.socket.nio.NioDatagramChannel::class.java))
             .group(lg)
-            .option(org.cloudburstmc.netty.channel.raknet.config.RakChannelOption.RAK_ADVERTISEMENT, pong.toByteBuf())
-            .childHandler(object : org.cloudburstmc.protocol.bedrock.netty.initializer.BedrockChannelInitializer<org.cloudburstmc.protocol.bedrock.BedrockServerSession>() {
-                override fun initSession(srv: org.cloudburstmc.protocol.bedrock.BedrockServerSession) {
+            .option(
+                org.cloudburstmc.netty.channel.raknet.config.RakChannelOption.RAK_ADVERTISEMENT,
+                pong.toByteBuf())
+            .childHandler(object :
+                org.cloudburstmc.protocol.bedrock.netty.initializer.BedrockChannelInitializer
+                        org.cloudburstmc.protocol.bedrock.BedrockServerSession>() {
+
+                override fun createSession0(
+                    peer: org.cloudburstmc.protocol.bedrock.BedrockPeer,
+                    subClientId: Int
+                ): org.cloudburstmc.protocol.bedrock.BedrockServerSession =
+                    org.cloudburstmc.protocol.bedrock.BedrockServerSession(peer, subClientId)
+
+                override fun initSession(
+                    srv: org.cloudburstmc.protocol.bedrock.BedrockServerSession
+                ) {
                     ses.serverSession = srv
-                    srv.packetHandler = org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler { pkt: BedrockPacket -> ses.handleFromClient(pkt); true }
-                    srv.channel().closeFuture().addListener { ses.disconnect() }
-                    io.netty.bootstrap.Bootstrap()
-                        .channelFactory(org.cloudburstmc.netty.channel.raknet.RakChannelFactory.client(lg))
-                        .group(lg)
-                        .handler(object : org.cloudburstmc.protocol.bedrock.netty.initializer.BedrockChannelInitializer<org.cloudburstmc.protocol.bedrock.BedrockClientSession>() {
-                            override fun initSession(cli: org.cloudburstmc.protocol.bedrock.BedrockClientSession) {
-                                ses.clientSession = cli
-                                cli.packetHandler = org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler { pkt: BedrockPacket -> ses.handleFromServer(pkt); true }
-                                cli.channel().closeFuture().addListener { ses.disconnect() }
+                    srv.packetHandler =
+                        object : org.cloudburstmc.protocol.bedrock.packet.BedrockPacketHandler {
+                            override fun handlePacket(
+                                pkt: org.cloudburstmc.protocol.bedrock.packet.BedrockPacket
+                            ): Boolean {
+                                ses.handleFromClient(pkt)
+                                return true
                             }
-                        }).connect(java.net.InetSocketAddress(remoteIp, remotePort))
+                        }
+
+                    io.netty.bootstrap.Bootstrap()
+                        .channelFactory(
+                            org.cloudburstmc.netty.channel.raknet.RakChannelFactory.client(
+                                io.netty.channel.socket.nio.NioDatagramChannel::class.java))
+                        .group(lg)
+                        .handler(object :
+                            org.cloudburstmc.protocol.bedrock.netty.initializer
+                                .BedrockChannelInitializer
+                                    org.cloudburstmc.protocol.bedrock.BedrockClientSession>() {
+
+                            override fun createSession0(
+                                peer: org.cloudburstmc.protocol.bedrock.BedrockPeer,
+                                subClientId: Int
+                            ): org.cloudburstmc.protocol.bedrock.BedrockClientSession =
+                                org.cloudburstmc.protocol.bedrock.BedrockClientSession(
+                                    peer, subClientId)
+
+                            override fun initSession(
+                                cli: org.cloudburstmc.protocol.bedrock.BedrockClientSession
+                            ) {
+                                ses.clientSession = cli
+                                cli.packetHandler =
+                                    object : org.cloudburstmc.protocol.bedrock.packet
+                                        .BedrockPacketHandler {
+                                        override fun handlePacket(
+                                            pkt: org.cloudburstmc.protocol.bedrock.packet
+                                                .BedrockPacket
+                                        ): Boolean {
+                                            ses.handleFromServer(pkt)
+                                            return true
+                                        }
+                                    }
+                            }
+                        })
+                        .connect(java.net.InetSocketAddress(remoteIp, remotePort))
                 }
-            }).bind(java.net.InetSocketAddress("0.0.0.0", 19132)).syncUninterruptibly()
+            })
+            .bind(java.net.InetSocketAddress("0.0.0.0", 19132))
+            .syncUninterruptibly()
     }
-    fun stop() { active?.disconnect(); active = null }
+
+    fun stop() {
+        active?.disconnect()
+        active = null
+    }
 }
 
 class MainActivity : ComponentActivity() {
