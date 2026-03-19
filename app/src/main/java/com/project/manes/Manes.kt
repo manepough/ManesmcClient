@@ -150,7 +150,7 @@ class XRayModule : Module("XRay","Show ores through walls","World") {
         } catch (e: Exception) { false }
     }
     private fun rewrite(orig: LevelChunkPacket, allowed: Set<Int>, air: Int): LevelChunkPacket? {
-        val raw = orig.data ?: return null; val buf = Unpooled.wrappedBuffer(raw); val out = ByteArrayOutputStream(); var changed = false
+        val raw = orig.data ?: return null; val buf = if (raw is io.netty.buffer.ByteBuf) raw else Unpooled.wrappedBuffer(raw as ByteArray); val out = ByteArrayOutputStream(); var changed = false
         for (s in 0 until orig.subChunksLength) {
             val ver = buf.readUnsignedByte().toInt(); val layers = if (ver==8||ver==9) buf.readUnsignedByte().toInt() else 1
             out.write(ver); if (ver==8||ver==9) out.write(layers)
@@ -162,7 +162,7 @@ class XRayModule : Module("XRay","Show ores through walls","World") {
             }
         }
         if (!changed) return null; val rest=ByteArray(buf.readableBytes()); buf.readBytes(rest); out.write(rest)
-        return LevelChunkPacket().also{it.chunkX=orig.chunkX;it.chunkZ=orig.chunkZ;it.subChunksLength=orig.subChunksLength;it.isCachingEnabled=orig.isCachingEnabled;it.data=out.toByteArray()}
+        return LevelChunkPacket().also{it.chunkX=orig.chunkX;it.chunkZ=orig.chunkZ;it.subChunksLength=orig.subChunksLength;it.isCachingEnabled=orig.isCachingEnabled;it.data=Unpooled.wrappedBuffer(out.toByteArray())
     }
     private fun wLE(o: ByteArrayOutputStream, v: Int) { o.write(v and 0xFF);o.write((v ushr 8) and 0xFF);o.write((v ushr 16) and 0xFF);o.write((v ushr 24) and 0xFF) }
 }
