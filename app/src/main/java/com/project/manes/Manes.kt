@@ -364,7 +364,7 @@ class MainActivity : ComponentActivity() {
 }
 
 // Theme
-@Composable fun AppTheme(c: @Composable()->Unit)=MaterialTheme(colorScheme=darkColorScheme(background=BG,surface=Surf,primary=Acc,onPrimary=Color.White,onBackground=TxtP,onSurface=TxtP),content=c)
+@Composable fun AppTheme(c: @Composable () ->Unit)=MaterialTheme(colorScheme=darkColorScheme(background=BG,surface=Surf,primary=Acc,onPrimary=Color.White,onBackground=TxtP,onSurface=TxtP),content=c)
 
 // Login screen
 @Composable fun LoginScreen(onLogin: (String)->Unit) {
