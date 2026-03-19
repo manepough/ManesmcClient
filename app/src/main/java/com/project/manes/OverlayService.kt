@@ -40,28 +40,42 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else WindowManager.LayoutParams.TYPE_PHONE
 
+        // Use density-aware size (~44dp)
+        val density = resources.displayMetrics.density
+        val btnPx = (44 * density).toInt()
+
         val lp = WindowManager.LayoutParams(
-            130, 130, type,
+            btnPx, btnPx, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.BOTTOM or Gravity.END; x = 24; y = 220 }
+        // Use TOP|START so rawX/rawY map directly — no direction flip
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = 24; y = (220 * density).toInt() }
 
         val btn = object : TextView(this) {
             private var ox = 0f; private var oy = 0f
             private var lx = 0f; private var ly = 0f
             private var moved = false
             init {
-                text = "☯"; textSize = 30f; gravity = Gravity.CENTER
+                text = "☯"; textSize = 22f; gravity = Gravity.CENTER
                 setTextColor(Color.WHITE)
-                background = oval("#CC7C6EF7", "#A78BFA", 2)
+                background = oval("#CC2563EB", "#1D4ED8", 2)
             }
             override fun onTouchEvent(e: MotionEvent): Boolean {
                 when (e.action) {
-                    MotionEvent.ACTION_DOWN -> { ox=lp.x-e.rawX; oy=lp.y-e.rawY; lx=e.rawX; ly=e.rawY; moved=false }
+                    MotionEvent.ACTION_DOWN -> {
+                        // Save offset from finger to view top-left corner
+                        ox = lp.x - e.rawX
+                        oy = lp.y - e.rawY
+                        lx = e.rawX; ly = e.rawY
+                        moved = false
+                    }
                     MotionEvent.ACTION_MOVE -> {
-                        if (Math.abs(e.rawX-lx)>10||Math.abs(e.rawY-ly)>10) {
-                            moved=true; lp.x=(e.rawX+ox).toInt(); lp.y=(e.rawY+oy).toInt()
-                            wm?.updateViewLayout(this,lp)
+                        if (Math.abs(e.rawX - lx) > 8 || Math.abs(e.rawY - ly) > 8) {
+                            moved = true
+                            val dm = resources.displayMetrics
+                            lp.x = (e.rawX + ox).toInt().coerceIn(0, dm.widthPixels - btnPx)
+                            lp.y = (e.rawY + oy).toInt().coerceIn(0, dm.heightPixels - btnPx)
+                            wm?.updateViewLayout(this, lp)
                         }
                     }
                     MotionEvent.ACTION_UP -> if (!moved) toggle()
@@ -128,9 +142,11 @@ class OverlayService : Service() {
         root.addView(tabs)
         root.addView(divider())
 
-        // Content scroll
+        // Content scroll — use 55% of screen height so it doesn't overflow
+        val screenH = resources.displayMetrics.heightPixels
         val scroll = ScrollView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 800)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (screenH * 0.55f).toInt())
+            isScrollbarFadingEnabled = false
         }
         val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0,8,0,8) }
         scroll.addView(content)
