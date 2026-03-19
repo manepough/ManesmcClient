@@ -362,7 +362,7 @@ class MainActivity : ComponentActivity() {
                         android.net.Uri.parse("package:$packageName")))
                 }
                 .setNegativeButton("Skip") { d, _ -> d.dismiss() }
-                show()
+                .create().show()
         }
         val sv=Store.loadServers(this).ifEmpty{defServers.toMutableList()}
         val wv=Store.loadWorlds(this)
