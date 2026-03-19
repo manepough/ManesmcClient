@@ -4,6 +4,8 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
+import android.graphics.drawable.GradientDrawable
+import android.widget.*
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
