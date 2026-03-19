@@ -155,7 +155,7 @@ class ESPModule : Module("ESP","See entities through walls","Visual") {
 
 // Hitbox
 class HitboxModule : Module("Hitbox","Expand enemy hitboxes","Combat") {
-    private val scale=1.8f
+    var scale=1.8f
     override fun onClientBound(pkt: BedrockPacket, ses: RelaySession): Boolean {
         if(!enabled)return false
         try {
@@ -239,11 +239,14 @@ class FastPlaceModule : Module("FastPlace","Place blocks faster","World") {
 
 // KillAura (visual only - shows in module list)
 class KillAuraModule : Module("KillAura","Auto attack nearby entities","Combat") {
+    var range = 3.5f
+    var delayMs = 150
     override fun onClientBound(pkt: BedrockPacket, ses: RelaySession): Boolean = false
 }
 
 // Reach
 class ReachModule : Module("Reach","Extended attack reach","Combat") {
+    var reach = 4.5f
     override fun onClientBound(pkt: BedrockPacket, ses: RelaySession): Boolean = false
 }
 
@@ -271,6 +274,7 @@ class TracersModule : Module("Tracers","Draw lines to entities","Visual") {
 
 // Timer
 class TimerModule : Module("Timer","Speed up game tick","Misc") {
+    var speed = 1.0f
     override fun onClientBound(pkt: BedrockPacket, ses: RelaySession): Boolean = false
 }
 
@@ -358,7 +362,7 @@ class MainActivity : ComponentActivity() {
                         android.net.Uri.parse("package:$packageName")))
                 }
                 .setNegativeButton("Skip") { d, _ -> d.dismiss() }
-                .show()
+                show()
         }
         val sv=Store.loadServers(this).ifEmpty{defServers.toMutableList()}
         val wv=Store.loadWorlds(this)
@@ -375,7 +379,19 @@ class MainActivity : ComponentActivity() {
         if (OverlayService.hasPermission(this)) {
             OverlayService.start(this)
         }
-        Handler(Looper.getMainLooper()).postDelayed({try{startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("minecraft://?addExternalServer=Manes+${Uri.encode(name)}%7C127.0.0.1:19132")))}catch(_:Exception){}},1500)
+        Handler(Looper.getMainLooper()).postDelayed({
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW,
+                    Uri.parse("minecraft://?addExternalServer=Manes+Proxy+${Uri.encode(name)}%7C127.0.0.1:19132")))
+            } catch(_:Exception) {
+                // fallback: open Minecraft directly
+                try {
+                    val mc = packageManager.getLaunchIntentForPackage("com.mojang.minecraftpe")
+                    if (mc != null) startActivity(mc)
+                } catch(_:Exception) {}
+            }
+            android.widget.Toast.makeText(this, "Manes proxy started! In Minecraft: Servers tab, join 'Manes Proxy $name'", android.widget.Toast.LENGTH_LONG).show()
+        }, 1200)
     }
 }
 
