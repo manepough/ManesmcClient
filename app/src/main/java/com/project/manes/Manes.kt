@@ -137,8 +137,13 @@ class XRayModule : Module("XRay","Show ores through walls","World") {
     override fun onClientBound(pkt: BedrockPacket, ses: RelaySession): Boolean {
         if (!enabled || pkt !is LevelChunkPacket) return false
         return try {
-            val defs = ses.serverSession?.blockDefinitions ?: return false
-            val n2i = HashMap<String,Int>(); defs.forEachEntry { k,id -> n2i[k.name]=id }
+            val srv = ses.serverSession ?: return false
+            val defs = try { srv.javaClass.getMethod("getBlockDefinitions").invoke(srv) } catch(e:Exception){ return false } ?: return false
+            val n2i = HashMap<String,Int>()
+            try {
+                val forEach = defs.javaClass.methods.firstOrNull { it.name == "forEachEntry" } ?: return false
+                forEach.invoke(defs, java.util.function.BiConsumer<Any,Int> { k, id -> try { val nm = k.javaClass.getMethod("getName").invoke(k) as? String ?: k.toString(); n2i[nm] = id } catch(e:Exception){} })
+            } catch(e:Exception){ return false }
             val allowed = HashSet<Int>(); for (n in keep) { n2i[n]?.let { allowed.add(it) } }
             val air = n2i["minecraft:air"] ?: 0
             val r = rewrite(pkt,allowed,air) ?: return false; ses.sendToClient(r); true
@@ -222,7 +227,7 @@ object ManesRelay {
         ServerBootstrap()
             .channelFactory(RakChannelFactory.server(NioDatagramChannel::class.java))
             .group(group)
-            .option(RakChannelOption.RAK_ADVERTISEMENT,pong.toByteBuf())
+            .option(RakChannelOption.RAK_ADVERTISEMENT, run { val b = pong.toByteBuf(); if (b is io.netty.buffer.ByteBuf) b else Unpooled.wrappedBuffer(b as ByteArray) })
             .childHandler(object:BedrockServerInitializer(){
                 override fun initSession(srv: BedrockServerSession) {
                     ses.serverSession=srv
