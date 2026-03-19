@@ -309,14 +309,14 @@ class RelaySession {
     fun sendToClient(p: BedrockPacket) { serverSession?.sendPacket(p) }
     fun sendToServer(p: BedrockPacket) { val c=clientSession; if(c!=null)c.sendPacket(p) else queue.offer(p) }
     fun handleFromServer(pkt: BedrockPacket) {
-    if (pkt is NetworkSettingsPacket) {
-        serverSession?.let { srv ->
-            val codec = srv.codec
-            clientSession?.codec = codec
-            serverSession?.codec = codec
+        if (pkt is NetworkSettingsPacket) {
+            serverSession?.let { srv ->
+                val codec = srv.codec
+                clientSession?.codec = codec
+                serverSession?.codec = codec
+            }
         }
-    }
-    for(m in Modules.all){try{if(m.onClientBound(pkt,this))return}catch(_:Exception){}}; sendToClient(pkt)
+        for(m in Modules.all){try{if(m.onClientBound(pkt,this))return}catch(_:Exception){}}; sendToClient(pkt)
     }
     fun handleFromClient(pkt: BedrockPacket) { for(m in Modules.all){try{if(m.onServerBound(pkt,this))return}catch(_:Exception){}}; sendToServer(pkt) }
     fun disconnect() { try{clientSession?.disconnect()}catch(_:Exception){} }
@@ -331,7 +331,7 @@ object ManesRelay {
         stop(); currentTarget=displayName
         val ses=RelaySession().also{active=it}
         val group=NioEventLoopGroup()
-        val pong=BedrockPong().edition("MCPE").motd("Manes >> $displayName").subMotd("Join to connect").playerCount(0).maximumPlayerCount(1).gameType("Survival")..protocolVersion(924).version("1.26.3")
+        val pong=BedrockPong().edition("MCPE").motd("Manes >> $displayName").subMotd("Join to connect").playerCount(0).maximumPlayerCount(1).gameType("Survival").protocolVersion(924).version("1.26.3").nintendoLimited(false)
         val pongBuf:ByteBuf=try{pong.toByteBuf() as ByteBuf}catch(_:Exception){Unpooled.wrappedBuffer(pong.toByteBuf() as ByteArray)}
         ServerBootstrap()
             .channelFactory(RakChannelFactory.server(NioDatagramChannel::class.java))
