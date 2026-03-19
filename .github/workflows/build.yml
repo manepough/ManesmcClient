@@ -16,26 +16,13 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Gradle
+      - name: Build APK
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.6'
 
-      - name: Generate gradlew in temp folder
-        run: |
-          mkdir /tmp/wrapper
-          cd /tmp/wrapper
-          echo "plugins {}" > build.gradle
-          gradle wrapper --gradle-version 8.6
-          cp gradlew $GITHUB_WORKSPACE/
-          cp gradlew.bat $GITHUB_WORKSPACE/
-          cp -r gradle/wrapper $GITHUB_WORKSPACE/gradle/
-
-      - name: Make gradlew executable
-        run: chmod +x gradlew
-
-      - name: Build APK
-        run: ./gradlew assembleDebug
+      - name: Run assembleDebug
+        run: gradle assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
