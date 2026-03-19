@@ -1,8 +1,12 @@
 pluginManagement {
     repositories {
+        gradlePluginPortal()
         google()
         mavenCentral()
-        gradlePluginPortal()
+    }
+    plugins {
+        id("com.android.application") version "8.2.2"
+        id("org.jetbrains.kotlin.android") version "1.9.22"
     }
 }
 
@@ -11,7 +15,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // CloudburstMC — required for Bedrock protocol + RakNet
         maven("https://repo.opencollab.dev/maven-snapshots/")
         maven("https://repo.opencollab.dev/maven-releases/")
     }
