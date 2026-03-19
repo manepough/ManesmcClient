@@ -1,27 +1,27 @@
 package com.project.manes
 
 import android.app.*
+import androidx.core.app.NotificationCompat
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
 import android.graphics.drawable.GradientDrawable
-import android.widget.*
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import android.view.*
-import android.widget.FrameLayout
-import androidx.core.app.NotificationCompat
+import android.widget.*
 
 class OverlayService : Service() {
 
-    private var windowManager: WindowManager? = null
-    private var overlayView: View? = null
+    private var wm: WindowManager? = null
+    private var btnView: View? = null
     private var panelView: View? = null
-    private var panelVisible = false
+    private var panelOpen = false
+    private var currentTab = "Combat"
 
     companion object {
-        const val CHANNEL_ID = "manes_overlay"
+        const val CH = "manes_ov"
         fun hasPermission(ctx: Context) = Settings.canDrawOverlays(ctx)
         fun start(ctx: Context) { ctx.startForegroundService(Intent(ctx, OverlayService::class.java)) }
         fun stop(ctx: Context) { ctx.stopService(Intent(ctx, OverlayService::class.java)) }
@@ -29,182 +29,247 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(1, buildNotification())
-        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        showYinYangButton()
+        createChannel()
+        startForeground(1, buildNote())
+        wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        addButton()
     }
 
-    private fun showYinYangButton() {
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+    private fun addButton() {
+        val type = if (Build.VERSION.SDK_INT >= 26)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else WindowManager.LayoutParams.TYPE_PHONE
 
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            type,
+        val lp = WindowManager.LayoutParams(
+            130, 130, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            x = 16; y = 200
-        }
+        ).apply { gravity = Gravity.BOTTOM or Gravity.END; x = 24; y = 220 }
 
-        val btn = object : android.widget.TextView(this) {
-            private var dx = 0f; private var dy = 0f
+        val btn = object : TextView(this) {
+            private var ox = 0f; private var oy = 0f
             private var lx = 0f; private var ly = 0f
             private var moved = false
-
             init {
-                text = "☯"
-                textSize = 28f
-                gravity = Gravity.CENTER
+                text = "☯"; textSize = 30f; gravity = Gravity.CENTER
                 setTextColor(Color.WHITE)
-                setPadding(4, 4, 4, 4)
-                val bg = GradientDrawable().apply {
-                    shape = GradientDrawable.OVAL
-                    setColor(Color.parseColor("#CC7C6EF7"))
-                    setStroke(2, Color.parseColor("#A78BFA"))
-                }
-                background = bg
-                layoutParams = FrameLayout.LayoutParams(120, 120)
+                background = oval("#CC7C6EF7", "#A78BFA", 2)
             }
-
             override fun onTouchEvent(e: MotionEvent): Boolean {
                 when (e.action) {
-                    MotionEvent.ACTION_DOWN -> { dx = params.x - e.rawX; dy = params.y - e.rawY; lx = e.rawX; ly = e.rawY; moved = false }
+                    MotionEvent.ACTION_DOWN -> { ox=lp.x-e.rawX; oy=lp.y-e.rawY; lx=e.rawX; ly=e.rawY; moved=false }
                     MotionEvent.ACTION_MOVE -> {
-                        val nx = (e.rawX + dx).toInt(); val ny = (e.rawY + dy).toInt()
-                        if (Math.abs(e.rawX - lx) > 8 || Math.abs(e.rawY - ly) > 8) { moved = true; params.x = nx; params.y = ny; windowManager?.updateViewLayout(this, params) }
+                        if (Math.abs(e.rawX-lx)>10||Math.abs(e.rawY-ly)>10) {
+                            moved=true; lp.x=(e.rawX+ox).toInt(); lp.y=(e.rawY+oy).toInt()
+                            wm?.updateViewLayout(this,lp)
+                        }
                     }
-                    MotionEvent.ACTION_UP -> { if (!moved) togglePanel() }
+                    MotionEvent.ACTION_UP -> if (!moved) toggle()
                 }
                 return true
             }
         }
-
-        overlayView = btn
-        try { windowManager?.addView(btn, params) } catch (e: Exception) { e.printStackTrace() }
+        btnView = btn
+        try { wm?.addView(btn, lp) } catch (e: Exception) { e.printStackTrace() }
     }
 
-    private fun togglePanel() {
-        if (panelVisible) hidePanel() else showPanel()
-    }
+    private fun toggle() { if (panelOpen) closePanel() else openPanel() }
 
-    private fun showPanel() {
-        panelVisible = true
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        else WindowManager.LayoutParams.TYPE_PHONE
-
-        val params = WindowManager.LayoutParams(
-            700, WindowManager.LayoutParams.WRAP_CONTENT,
+    private fun openPanel() {
+        panelOpen = true
+        val type = if (Build.VERSION.SDK_INT >= 26) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY else WindowManager.LayoutParams.TYPE_PHONE
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
             type,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.CENTER }
+        ).apply { gravity = Gravity.BOTTOM; y = 0 }
 
-        val layout = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(32, 32, 32, 32)
-            val bg = GradientDrawable().apply { setColor(Color.parseColor("#F018181C")); cornerRadius = 40f; setStroke(2, Color.parseColor("#7C6EF7")) }
-            background = bg
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = roundRect("#F0101014", 48f)
+            setPadding(24, 24, 24, 24)
         }
 
-        // Header row
-        val header = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.HORIZONTAL }
-        val title = android.widget.TextView(this).apply { text = "☯  Modules"; textSize = 18f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD; layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f) }
-        val close = android.widget.TextView(this).apply { text = "✕"; textSize = 18f; setTextColor(Color.parseColor("#8B8A9B")); setPadding(16, 0, 0, 0)
-            setOnClickListener { hidePanel() } }
-        header.addView(title); header.addView(close)
-        layout.addView(header)
+        // Header
+        val hdr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val ttl = TextView(this).apply {
+            text = "☯  Modules"; textSize = 17f
+            setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val cls = TextView(this).apply {
+            text = "✕"; textSize = 20f; setTextColor(Color.parseColor("#8B8A9B"))
+            setPadding(16,0,0,0); setOnClickListener { closePanel() }
+        }
+        hdr.addView(ttl); hdr.addView(cls)
+        root.addView(hdr)
+        root.addView(divider())
 
-        // Divider
-        val div = android.view.View(this).apply { layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 2).apply { topMargin=16; bottomMargin=16 }; setBackgroundColor(Color.parseColor("#222228")) }
-        layout.addView(div)
+        // Tab row
+        val tabs = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin=12; bottomMargin=12 }
+        }
+        val tabNames = listOf("Combat","Visual","World","Motion","Misc")
+        val tabViews = mutableMapOf<String,TextView>()
 
-        // Scroll
-        val scroll = android.widget.ScrollView(this).apply { layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 900) }
-        val inner = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL }
-
-        val cats = Modules.all.groupBy { it.category }
-        val catColors = mapOf("Combat" to "#F87171","Visual" to "#A78BFA","World" to "#4ADE80","Motion" to "#FBBF24","Misc" to "#22D3EE")
-
-        cats.forEach { (cat, mods) ->
-            val catLabel = android.widget.TextView(this).apply {
-                text = cat.uppercase(); textSize = 10f
-                setTextColor(Color.parseColor(catColors[cat] ?: "#8B8A9B"))
-                setPadding(0, 24, 0, 8)
-                letterSpacing = 0.1f
+        tabNames.forEach { tabName ->
+            val tv = TextView(this).apply {
+                text = tabName; textSize = 12f; gravity = Gravity.CENTER
+                setPadding(16, 12, 16, 12)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd=4 }
+                isClickable = true
             }
-            inner.addView(catLabel)
-            mods.forEach { mod ->
-                val row = android.widget.LinearLayout(this).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    setPadding(20, 16, 20, 16)
-                    val bg2 = GradientDrawable().apply {
-                        val c = Color.parseColor(catColors[mod.category] ?: "#8B8A9B")
-                        setColor(if (mod.enabled) Color.argb(30, Color.red(c), Color.green(c), Color.blue(c)) else Color.parseColor("#18181C"))
-                        cornerRadius = 24f
-                        setStroke(1, if (mod.enabled) c else Color.parseColor("#222228"))
-                    }
-                    background = bg2
-                    layoutParams = android.widget.LinearLayout.LayoutParams(android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = 8 }
-                }
-                val col = android.widget.LinearLayout(this).apply { orientation = android.widget.LinearLayout.VERTICAL; layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f) }
-                val nm = android.widget.TextView(this).apply { text = mod.name; textSize = 14f; setTextColor(Color.WHITE) }
-                val ds = android.widget.TextView(this).apply { text = mod.desc; textSize = 11f; setTextColor(Color.parseColor("#8B8A9B")) }
-                col.addView(nm); col.addView(ds)
-                val sw = android.widget.Switch(this).apply {
-                    isChecked = mod.enabled
-                    setOnCheckedChangeListener { _, v ->
-                        mod.enabled = v
-                        // Refresh background
-                        val c = Color.parseColor(catColors[mod.category] ?: "#8B8A9B")
-                        val bg3 = GradientDrawable().apply {
-                            setColor(if (v) Color.argb(30, Color.red(c), Color.green(c), Color.blue(c)) else Color.parseColor("#18181C"))
-                            cornerRadius = 24f; setStroke(1, if (v) c else Color.parseColor("#222228"))
-                        }
-                        row.background = bg3
-                    }
-                }
-                row.addView(col); row.addView(sw)
-                inner.addView(row)
+            tabViews[tabName] = tv
+            tabs.addView(tv)
+        }
+        root.addView(tabs)
+        root.addView(divider())
+
+        // Content scroll
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 800)
+        }
+        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0,8,0,8) }
+        scroll.addView(content)
+        root.addView(scroll)
+
+        fun refreshTabs(active: String) {
+            currentTab = active
+            tabViews.forEach { (name, tv) ->
+                val on = name == active
+                val col = tabColor(name)
+                tv.setTextColor(if(on) Color.WHITE else Color.parseColor("#8B8A9B"))
+                tv.background = if(on) oval(col, col, 0) else oval("#22222228","#333333",0)
             }
+            content.removeAllViews()
+            val mods = Modules.all.filter { it.category == active }
+            mods.forEach { mod -> content.addView(moduleRow(mod, content)) }
         }
 
-        scroll.addView(inner); layout.addView(scroll)
-        panelView = layout
-        try { windowManager?.addView(layout, params) } catch (e: Exception) { e.printStackTrace() }
+        tabViews.forEach { (name, tv) -> tv.setOnClickListener { refreshTabs(name) } }
+        refreshTabs(currentTab)
+
+        panelView = root
+        try { wm?.addView(root, lp) } catch (e: Exception) { e.printStackTrace() }
     }
 
-    private fun hidePanel() {
-        panelVisible = false
-        panelView?.let { try { windowManager?.removeView(it) } catch (_: Exception) {} }
+    private fun moduleRow(mod: Module, parent: LinearLayout): LinearLayout {
+        val cc = tabColor(mod.category)
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(20,16,20,16)
+            background = if(mod.enabled) roundRectStroke("#1A${cc.removePrefix("#")}", 24f, cc) else roundRectStroke("#18181C", 24f, "#333333")
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin=8 }
+        }
+        // Top row: name + switch
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val nameCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT,1f) }
+        val nm = TextView(this).apply { text = mod.name; textSize = 14f; setTextColor(Color.WHITE) }
+        val ds = TextView(this).apply { text = mod.desc; textSize = 11f; setTextColor(Color.parseColor("#8B8A9B")) }
+        nameCol.addView(nm); nameCol.addView(ds)
+        val sw = Switch(this).apply { isChecked = mod.enabled }
+        top.addView(nameCol); top.addView(sw)
+        row.addView(top)
+
+        // Sliders for configurable modules
+        when (mod) {
+            is HitboxModule -> {
+                row.addView(sliderRow("Width/Height", 1f, 4f, mod.scale) { v -> mod.scale = v })
+            }
+            is ReachModule -> {
+                row.addView(sliderRow("Reach (blocks)", 3f, 8f, mod.reach) { v -> mod.reach = v })
+            }
+            is KillAuraModule -> {
+                row.addView(sliderRow("Range (blocks)", 2f, 6f, mod.range) { v -> mod.range = v })
+                row.addView(sliderRow("Delay (ms)", 50f, 500f, mod.delayMs.toFloat()) { v -> mod.delayMs = v.toInt() })
+            }
+            is TimerModule -> {
+                row.addView(sliderRow("Speed", 0.5f, 3f, mod.speed) { v -> mod.speed = v })
+            }
+        }
+
+        sw.setOnCheckedChangeListener { _, v ->
+            mod.enabled = v
+            row.background = if(v) roundRectStroke("#1A${cc.removePrefix("#")}", 24f, cc) else roundRectStroke("#18181C", 24f, "#333333")
+        }
+        return row
+    }
+
+    private fun sliderRow(label: String, min: Float, max: Float, initial: Float, onChange: (Float)->Unit): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin=10 }
+        }
+        val lbl = TextView(this).apply {
+            text = "$label: ${"%.1f".format(initial)}"
+            textSize = 11f; setTextColor(Color.parseColor("#A78BFA"))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd=8 }
+            minWidth = 160
+        }
+        val sb = SeekBar(this).apply {
+            this.max = 100
+            progress = ((initial - min) / (max - min) * 100).toInt().coerceIn(0, 100)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar, p: Int, u: Boolean) {
+                    val v = min + (max - min) * p / 100f
+                    lbl.text = "$label: ${"%.1f".format(v)}"
+                    onChange(v)
+                }
+                override fun onStartTrackingTouch(sb: SeekBar) {}
+                override fun onStopTrackingTouch(sb: SeekBar) {}
+            })
+        }
+        row.addView(lbl); row.addView(sb)
+        return row
+    }
+
+    private fun closePanel() {
+        panelOpen = false
+        panelView?.let { try { wm?.removeView(it) } catch (_:Exception){} }
         panelView = null
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        overlayView?.let { try { windowManager?.removeView(it) } catch (_: Exception) {} }
-        hidePanel()
+        closePanel()
+        btnView?.let { try { wm?.removeView(it) } catch (_:Exception){} }
+    }
+    override fun onBind(i: Intent?): IBinder? = null
+
+    private fun oval(fill: String, stroke: String, sw: Int) = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(Color.parseColor(fill))
+        if (sw > 0) setStroke(sw, Color.parseColor(stroke))
+    }
+    private fun roundRect(fill: String, r: Float) = GradientDrawable().apply {
+        setColor(Color.parseColor(fill)); cornerRadius = r
+    }
+    private fun roundRectStroke(fill: String, r: Float, stroke: String) = GradientDrawable().apply {
+        setColor(Color.parseColor(fill)); cornerRadius = r; setStroke(2, Color.parseColor(stroke))
+    }
+    private fun divider() = View(this).apply {
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply { topMargin=8; bottomMargin=8 }
+        setBackgroundColor(Color.parseColor("#222228"))
+    }
+    private fun tabColor(cat: String) = when(cat) {
+        "Combat" -> "#F87171"; "Visual" -> "#A78BFA"; "World" -> "#4ADE80"
+        "Motion" -> "#FBBF24"; else -> "#22D3EE"
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(CHANNEL_ID, "Manes Overlay", NotificationManager.IMPORTANCE_LOW)
+    private fun createChannel() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            val ch = NotificationChannel(CH, "Manes Overlay", NotificationManager.IMPORTANCE_LOW)
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
         }
     }
-
-    private fun buildNotification(): Notification =
-        NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Manes is active")
-            .setContentText("Tap ☯ button in-game to toggle modules")
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
+    private fun buildNote() = NotificationCompat.Builder(this, CH)
+        .setContentTitle("Manes active")
+        .setContentText("Tap ☯ in-game to open modules")
+        .setSmallIcon(android.R.drawable.ic_dialog_info)
+        .setPriority(NotificationCompat.PRIORITY_LOW)
+        .build()
 }
