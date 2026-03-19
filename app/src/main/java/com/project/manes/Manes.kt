@@ -63,16 +63,19 @@ import java.net.InetSocketAddress
 import java.util.UUID
 import android.provider.Settings
 
-// Colors
-private val BG    = Color(0xFF090C14)
-private val Surf  = Color(0xFF111827)
-private val Surf2 = Color(0xFF1F2937)
-private val TxtP  = Color(0xFFF0F4FF)
-private val TxtM  = Color(0xFF6B7280)
-private val Grn   = Color(0xFF34D399)
+// Colors — Lumina style dark warm palette
+private val BG    = Color(0xFF1A1A1E)
+private val Surf  = Color(0xFF232328)
+private val Surf2 = Color(0xFF2E2E35)
+private val TxtP  = Color(0xFFE8E8EC)
+private val TxtM  = Color(0xFF8A8A95)
+private val Grn   = Color(0xFF4ADE80)
 private val RedC  = Color(0xFFF87171)
 private val Ylw   = Color(0xFFFBBF24)
 private val Cyn   = Color(0xFF22D3EE)
+// Lumina's signature cream/beige start button color
+private val StartBtn = Color(0xFFF5ECD7)
+private val StartBtnTxt = Color(0xFF1A1A1E)
 fun Color.a(v: Float) = Color(red, green, blue, v)
 
 // Theme system
@@ -352,7 +355,7 @@ object ManesRelay {
         stop(); currentTarget=displayName
         val ses=RelaySession().also{active=it}
         val group=NioEventLoopGroup()
-        val pong=BedrockPong().edition("MCPE").motd("Manes >> $displayName").subMotd("Join to connect").playerCount(0).maximumPlayerCount(1).gameType("Survival").protocolVersion(924).version("1.26.3").nintendoLimited(false)
+        val pong=BedrockPong().edition("MCPE").motd("Manes >> $displayName").subMotd("Join to connect").playerCount(0).maximumPlayerCount(1).gameType("Survival").protocolVersion(924).version("1.26.3")
         val pongBuf:ByteBuf=try{pong.toByteBuf() as ByteBuf}catch(_:Exception){Unpooled.wrappedBuffer(pong.toByteBuf() as ByteArray)}
         ServerBootstrap()
             .channelFactory(RakChannelFactory.server(NioDatagramChannel::class.java))
@@ -431,238 +434,340 @@ class MainActivity : ComponentActivity() {
     MaterialTheme(colorScheme=darkColorScheme(background=BG,surface=Surf,primary=acc,onPrimary=Color.White,onBackground=TxtP,onSurface=TxtP),content=c)
 }
 
-// Login screen - Lumina style
+// Login screen — exact Lumina splash style
 @Composable fun LoginScreen(onLogin: (String)->Unit) {
     var gamertag by remember{mutableStateOf("")}
     var loading by remember{mutableStateOf(false)}
     var error by remember{mutableStateOf("")}
     var showForm by remember{mutableStateOf(false)}
 
-    Box(Modifier.fillMaxSize().background(BG)) {
-        // Animated wave background
+    Box(Modifier.fillMaxSize().background(Color(0xFF12121A))) {
+        // Wave lines background like Lumina
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width; val h = size.height
-            for(i in 0..4) {
-                val y = h * 0.55f + i * 60f
-                drawLine(Color(0xFF1E3A5F).copy(alpha = 0.3f - i*0.05f),
-                    androidx.compose.ui.geometry.Offset(0f, y),
-                    androidx.compose.ui.geometry.Offset(w, y + 40f), strokeWidth=1.5f)
+            val waveColor = Color(0xFF2A3A2A).copy(alpha = 0.6f)
+            val pts = listOf(0.42f, 0.47f, 0.52f, 0.57f)
+            pts.forEachIndexed { i, frac ->
+                val y = h * frac
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(0f, y)
+                    cubicTo(w*0.25f, y-30f+(i*8f), w*0.5f, y+20f-(i*5f), w*0.75f, y-15f+(i*6f))
+                    cubicTo(w*0.85f, y+10f, w*0.95f, y-5f, w, y+8f)
+                }
+                drawPath(path, waveColor.copy(alpha = 0.4f - i*0.08f), style = androidx.compose.ui.graphics.drawscope.Stroke(strokeWidth = 1.2f))
             }
-        }
-        // Grid overlay
-        Canvas(Modifier.fillMaxSize()) {
-            val acc = ThemeManager.accent
-            for(x in 0..20) drawLine(acc.copy(alpha=0.03f), androidx.compose.ui.geometry.Offset(x*60f,0f), androidx.compose.ui.geometry.Offset(x*60f,size.height), 1f)
-            for(y in 0..40) drawLine(acc.copy(alpha=0.03f), androidx.compose.ui.geometry.Offset(0f,y*60f), androidx.compose.ui.geometry.Offset(size.width,y*60f), 1f)
         }
 
         if (!showForm) {
-            // Mode select screen like Lumina
-            Column(Modifier.fillMaxSize(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
-                Text("MANES", fontSize=32.sp, fontWeight=FontWeight.Bold, color=TxtP, letterSpacing=8.sp)
-                Text("Select Mode", fontSize=13.sp, color=TxtM, modifier=Modifier.padding(top=4.dp, bottom=48.dp))
-                Row(Modifier.padding(horizontal=24.dp), horizontalArrangement=Arrangement.spacedBy(16.dp)) {
-                    // Client Mode card
-                    Box(Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
-                        .background(Surf).border(1.dp, Acc.a(0.4f), RoundedCornerShape(16.dp))
-                        .clickable{showForm=true}.padding(20.dp)) {
-                        Column {
-                            Icon(Icons.Default.GridView, null, tint=Acc, modifier=Modifier.size(28.dp))
-                            Spacer(Modifier.height(12.dp))
-                            Text("Client Mode", fontSize=15.sp, fontWeight=FontWeight.SemiBold, color=TxtP)
-                            Text("Manes For Mobile", fontSize=11.sp, color=TxtM, modifier=Modifier.padding(top=4.dp))
+            // Lumina-style mode select — centered vertically in lower half
+            Column(
+                Modifier.fillMaxSize().padding(horizontal=24.dp),
+                horizontalAlignment=Alignment.CenterHorizontally,
+                verticalArrangement=Arrangement.Center
+            ) {
+                Text("PROJECT MANES", fontSize=18.sp, fontWeight=FontWeight.Bold, color=TxtP, letterSpacing=3.sp)
+                Text("Select Mode", fontSize=12.sp, color=TxtM, modifier=Modifier.padding(top=4.dp, bottom=32.dp))
+
+                Row(horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+                    // Client Mode — active card (Lumina style: dark bg, visible border)
+                    Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF222228))
+                        .border(1.dp, Color(0xFF3A3A45), RoundedCornerShape(14.dp))
+                        .clickable{showForm=true}.padding(18.dp)) {
+                        Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Default.GridView, null, tint=TxtM, modifier=Modifier.size(22.dp))
+                            Column {
+                                Text("Client Mode", fontSize=14.sp, fontWeight=FontWeight.Medium, color=TxtP)
+                                Text("Manes For Mobile", fontSize=11.sp, color=TxtM)
+                            }
                         }
                     }
-                    // Remote Link card
-                    Box(Modifier.weight(1f).clip(RoundedCornerShape(16.dp))
-                        .background(Surf).border(1.dp, Surf2, RoundedCornerShape(16.dp))
-                        .padding(20.dp)) {
-                        Column {
-                            Icon(Icons.Default.Link, null, tint=TxtM, modifier=Modifier.size(28.dp))
-                            Spacer(Modifier.height(12.dp))
-                            Text("Remote Link", fontSize=15.sp, fontWeight=FontWeight.SemiBold, color=TxtM)
-                            Text("Connect to external systems", fontSize=11.sp, color=TxtM.a(0.6f), modifier=Modifier.padding(top=4.dp))
+                    // Remote Link — inactive
+                    Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF222228))
+                        .border(1.dp, Color(0xFF3A3A45), RoundedCornerShape(14.dp))
+                        .padding(18.dp)) {
+                        Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Default.Link, null, tint=TxtM, modifier=Modifier.size(22.dp))
+                            Column {
+                                Text("Remote Link", fontSize=14.sp, fontWeight=FontWeight.Medium, color=TxtM)
+                                Text("Connect to external systems", fontSize=11.sp, color=TxtM.a(0.5f))
+                            }
                         }
                     }
                 }
+
+                Spacer(Modifier.height(8.dp))
+                Text("© Project Manes 2025", fontSize=10.sp, color=TxtM.a(0.4f))
             }
         } else {
             // Login form
-            Column(Modifier.fillMaxSize(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
-                Box(Modifier.size(72.dp).clip(RoundedCornerShape(20.dp)).background(Acc), contentAlignment=Alignment.Center) {
-                    Text("M", fontSize=36.sp, fontWeight=FontWeight.Bold, color=Color.White)
+            Column(Modifier.fillMaxSize().padding(horizontal=28.dp), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
+                Text("Sign In", fontSize=24.sp, fontWeight=FontWeight.SemiBold, color=TxtP)
+                Text("Enter your Minecraft gamertag", fontSize=13.sp, color=TxtM, modifier=Modifier.padding(top=6.dp, bottom=28.dp))
+                OutlinedTextField(gamertag,{gamertag=it},label={Text("Gamertag",fontSize=12.sp)},
+                    modifier=Modifier.fillMaxWidth(),singleLine=true,
+                    colors=OutlinedTextFieldDefaults.colors(focusedTextColor=TxtP,unfocusedTextColor=TxtP,focusedBorderColor=TxtM,unfocusedBorderColor=Surf2,focusedLabelColor=TxtM,unfocusedLabelColor=TxtM.a(0.6f),cursorColor=TxtP))
+                if(error.isNotBlank()){Spacer(Modifier.height(8.dp));Text(error,fontSize=12.sp,color=RedC)}
+                Spacer(Modifier.height(16.dp))
+                Button(onClick={if(gamertag.isBlank())error="Enter your gamertag" else{loading=true;onLogin(gamertag.trim())}},
+                    modifier=Modifier.fillMaxWidth().height(50.dp),shape=RoundedCornerShape(10.dp),
+                    colors=ButtonDefaults.buttonColors(containerColor=StartBtn)){
+                    if(loading)CircularProgressIndicator(color=StartBtnTxt,modifier=Modifier.size(18.dp),strokeWidth=2.dp)
+                    else Text("Continue",fontSize=14.sp,fontWeight=FontWeight.SemiBold,color=StartBtnTxt)
                 }
-                Spacer(Modifier.height(20.dp))
-                Text("Sign In", fontSize=26.sp, fontWeight=FontWeight.Bold, color=TxtP)
-                Text("Enter your Minecraft gamertag", fontSize=13.sp, color=TxtM, modifier=Modifier.padding(top=4.dp, bottom=32.dp))
-                Column(Modifier.padding(horizontal=32.dp).fillMaxWidth()) {
-                    OutlinedTextField(gamertag,{gamertag=it},label={Text("Gamertag",fontSize=12.sp)},modifier=Modifier.fillMaxWidth(),singleLine=true,
-                        colors=OutlinedTextFieldDefaults.colors(focusedTextColor=TxtP,unfocusedTextColor=TxtP,focusedBorderColor=Acc,unfocusedBorderColor=Surf2,focusedLabelColor=Acc,unfocusedLabelColor=TxtM,cursorColor=Acc))
-                    if(error.isNotBlank()){Spacer(Modifier.height(8.dp));Text(error,fontSize=12.sp,color=RedC)}
-                    Spacer(Modifier.height(20.dp))
-                    Button(onClick={if(gamertag.isBlank())error="Enter your gamertag" else{loading=true;onLogin(gamertag.trim())}},
-                        modifier=Modifier.fillMaxWidth().height(52.dp),shape=RoundedCornerShape(14.dp),
-                        colors=ButtonDefaults.buttonColors(containerColor=Acc)){
-                        if(loading)CircularProgressIndicator(color=Color.White,modifier=Modifier.size(20.dp),strokeWidth=2.dp)
-                        else Text("Continue",fontSize=15.sp,fontWeight=FontWeight.SemiBold)
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    TextButton(onClick={showForm=false},modifier=Modifier.fillMaxWidth()){Text("← Back",color=TxtM,fontSize=13.sp)}
-                }
+                Spacer(Modifier.height(10.dp))
+                TextButton(onClick={showForm=false},modifier=Modifier.fillMaxWidth()){Text("← Back",color=TxtM,fontSize=13.sp)}
             }
         }
     }
 }
 
-// Main app
+// Main app — exact Lumina UI layout
 @Composable
 fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<RealmEntry>,gamertag:String,saveSrv:(List<ServerEntry>)->Unit,saveWld:(List<WorldEntry>)->Unit,saveRlm:(List<RealmEntry>)->Unit,onLaunch:(String,Int,String)->Unit,onLogout:()->Unit) {
-    var tab by remember{mutableStateOf(0)}
+    var navPage by remember{mutableStateOf("Home")} // Home, About, Realms, Settings
+    var tab by remember{mutableStateOf(0)} // 0=Servers,1=Accounts,2=Packs,3=Realms
     var srvs by remember{mutableStateOf(initSrv)}
     var wlds by remember{mutableStateOf(initWld)}
     var rlms by remember{mutableStateOf(initRlm)}
     var selS by remember{mutableStateOf<String?>(null)}
-    var selW by remember{mutableStateOf<String?>(null)}
     var selR by remember{mutableStateOf<String?>(null)}
     var shAS by remember{mutableStateOf(false)}
-    var shAW by remember{mutableStateOf(false)}
     var shAR by remember{mutableStateOf(false)}
     var launch by remember{mutableStateOf(false)}
     var lName by remember{mutableStateOf("")}
     var showMods by remember{mutableStateOf(false)}
-    var showProfile by remember{mutableStateOf(false)}
-    var showSettings by remember{mutableStateOf(false)}
 
-    // Draggable button state
+    // Draggable button
     var dragX by remember{mutableStateOf(20f)}
     var dragY by remember{mutableStateOf(400f)}
 
-    val cs=srvs.firstOrNull{it.id==selS}
-    val cw=wlds.firstOrNull{it.id==selW}
-    val cr=rlms.firstOrNull{it.id==selR}
-    val rdy=(tab==0&&cs!=null)||(tab==1&&cw!=null)||(tab==2&&cr!=null)
-    val tabs = listOf("Servers","Worlds","Realms","Settings")
+    val cs = srvs.firstOrNull{it.id==selS}
+    val cr = rlms.firstOrNull{it.id==selR}
 
-    Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().background(BG)) {
-            // Header - Lumina style
-            Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Surf, BG)))) {
-                Row(Modifier.fillMaxWidth().padding(start=20.dp,end=16.dp,top=48.dp,bottom=16.dp),
-                    verticalAlignment=Alignment.CenterVertically,
-                    horizontalArrangement=Arrangement.SpaceBetween) {
-                    Column {
-                        Text("Manes", fontSize=24.sp, fontWeight=FontWeight.Bold, color=TxtP, letterSpacing=1.sp)
-                        Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                            Box(Modifier.size(6.dp).clip(CircleShape).background(if(ManesRelay.active!=null) Grn else TxtM))
-                            Text(if(ManesRelay.active!=null)"Relay Active" else "Idle", fontSize=11.sp, color=TxtM)
-                        }
-                    }
-                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp), verticalAlignment=Alignment.CenterVertically) {
-                        Box(Modifier.clip(RoundedCornerShape(20.dp)).background(Surf2)
-                            .clickable{showProfile=true}.padding(horizontal=12.dp,vertical=6.dp)){
-                            Text(gamertag, fontSize=12.sp, color=TxtP, fontWeight=FontWeight.Medium)
-                        }
-                    }
-                }
-            }
+    Box(Modifier.fillMaxSize().background(BG)) {
+        Column(Modifier.fillMaxSize()) {
 
-            // Tabs - Lumina style pill tabs
-            Row(Modifier.fillMaxWidth().padding(horizontal=16.dp, vertical=8.dp).clip(RoundedCornerShape(12.dp)).background(Surf),) {
-                tabs.forEachIndexed{i,l->
-                    val on=tab==i
-                    Box(Modifier.weight(1f).padding(4.dp).clip(RoundedCornerShape(10.dp))
-                        .background(if(on) Acc else Color.Transparent)
-                        .clickable{tab=i;selS=null;selW=null;selR=null}.padding(vertical=10.dp),
-                        contentAlignment=Alignment.Center){
-                        Text(l, fontSize=12.sp, fontWeight=if(on) FontWeight.SemiBold else FontWeight.Normal,
-                            color=if(on) Color.White else TxtM)
+            // TOP NAV — "Lumina | Home About Realms Settings" exactly like Lumina
+            Row(
+                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp, top=44.dp, bottom=0.dp),
+                verticalAlignment=Alignment.CenterVertically,
+                horizontalArrangement=Arrangement.SpaceBetween
+            ) {
+                Text("Manes", fontSize=18.sp, fontWeight=FontWeight.SemiBold, color=TxtP)
+                Row(horizontalArrangement=Arrangement.spacedBy(4.dp), verticalAlignment=Alignment.Bottom) {
+                    listOf("Home","About","Realms","Settings").forEach { page ->
+                        val active = navPage == page
+                        Column(
+                            Modifier.clickable{navPage=page}.padding(horizontal=10.dp, vertical=10.dp),
+                            horizontalAlignment=Alignment.CenterHorizontally
+                        ) {
+                            Text(page, fontSize=12.sp, color=if(active) TxtP else TxtM,
+                                fontWeight=if(active) FontWeight.Medium else FontWeight.Normal)
+                            if(active) Box(Modifier.padding(top=4.dp).width(16.dp).height(1.5.dp).background(TxtP))
+                            else Spacer(Modifier.height(5.5.dp))
+                        }
                     }
                 }
             }
 
-            // Content
-            if (tab == 3) {
-                // Settings screen
-                SettingsScreen(onLogout=onLogout)
-            } else {
-                LazyColumn(Modifier.weight(1f).padding(horizontal=16.dp), verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    when(tab) {
-                        0 -> {
-                            item{SLbl("Featured Servers")}
-                            items(srvs,key={it.id}){sv->EC("🌐",sv.name,"${sv.address}:${sv.port}",sv.id==selS,Acc,{selS=if(selS==sv.id)null else sv.id},{srvs=srvs.filter{it.id!=sv.id};saveSrv(srvs);if(selS==sv.id)selS=null})}
-                            item{AB("Add a server"){shAS=true}}
-                            item{Spacer(Modifier.height(140.dp))}
+            // PAGE CONTENT
+            when(navPage) {
+                "Home" -> {
+                    // Two-column Lumina layout
+                    Row(Modifier.weight(1f)) {
+                        // LEFT COLUMN — pill tabs + list
+                        Column(Modifier.weight(0.48f).fillMaxHeight().background(Surf)) {
+                            // Pill tabs row
+                            Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                                listOf("Servers","Accounts","Packs","Realms").forEachIndexed { i, l ->
+                                    val on = tab == i
+                                    Box(
+                                        Modifier.wrapContentWidth().clip(RoundedCornerShape(20.dp))
+                                            .background(if(on) Surf2 else Color.Transparent)
+                                            .border(1.dp, if(on) Color(0xFF4A4A55) else Color(0xFF333338), RoundedCornerShape(20.dp))
+                                            .clickable{tab=i; selS=null; selR=null}
+                                            .padding(horizontal=10.dp, vertical=6.dp),
+                                        contentAlignment=Alignment.Center
+                                    ) {
+                                        Text(l, fontSize=11.sp, color=if(on) TxtP else TxtM)
+                                    }
+                                }
+                            }
+
+                            // List content
+                            LazyColumn(Modifier.weight(1f)) {
+                                when(tab) {
+                                    0 -> {
+                                        items(srvs, key={it.id}) { sv ->
+                                            LuminaRow(sv.name, sv.id==selS) {
+                                                selS = if(selS==sv.id) null else sv.id
+                                            }
+                                        }
+                                        item {
+                                            Row(Modifier.fillMaxWidth().clickable{shAS=true}.padding(horizontal=12.dp, vertical=10.dp),
+                                                verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                                                Icon(Icons.Default.Add, null, tint=TxtM, modifier=Modifier.size(14.dp))
+                                                Text("Add server", fontSize=12.sp, color=TxtM)
+                                            }
+                                        }
+                                    }
+                                    1 -> { item { EM("Accounts coming soon") } }
+                                    2 -> { item { EM("Packs coming soon") } }
+                                    3 -> {
+                                        items(rlms, key={it.id}) { rl ->
+                                            LuminaRow(rl.name, rl.id==selR) {
+                                                selR = if(selR==rl.id) null else rl.id
+                                            }
+                                        }
+                                        item {
+                                            Row(Modifier.fillMaxWidth().clickable{shAR=true}.padding(horizontal=12.dp, vertical=10.dp),
+                                                verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(6.dp)){
+                                                Icon(Icons.Default.Add, null, tint=TxtM, modifier=Modifier.size(14.dp))
+                                                Text("Add realm", fontSize=12.sp, color=TxtM)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        1 -> {
-                            item{SLbl("Local Worlds")}
-                            if(wlds.isEmpty())item{EM("No worlds yet")}
-                            items(wlds,key={it.id}){wl->EC("🌲",wl.name,wl.info,wl.id==selW,Grn,{selW=if(selW==wl.id)null else wl.id},{wlds=wlds.filter{it.id!=wl.id};saveWld(wlds);if(selW==wl.id)selW=null})}
-                            item{AB("Import a world"){shAW=true}}
-                            item{Spacer(Modifier.height(140.dp))}
-                        }
-                        else -> {
-                            item{SLbl("Realms")}
-                            if(rlms.isEmpty())item{EM("No realms yet — add an invite code")}
-                            items(rlms,key={it.id}){rl->EC("☁️",rl.name,"Code: ${rl.code}",rl.id==selR,Ylw,{selR=if(selR==rl.id)null else rl.id},{rlms=rlms.filter{it.id!=rl.id};saveRlm(rlms);if(selR==rl.id)selR=null})}
-                            item{AB("Add a realm"){shAR=true}}
-                            item{Spacer(Modifier.height(140.dp))}
+
+                        // DIVIDER
+                        Box(Modifier.width(1.dp).fillMaxHeight().background(Color(0xFF2E2E38)))
+
+                        // RIGHT COLUMN — selected info + Start button
+                        Column(Modifier.weight(0.52f).fillMaxHeight().background(BG).padding(14.dp)) {
+                            // Hello greeting like Lumina
+                            Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.Person, null, tint=TxtM, modifier=Modifier.size(20.dp))
+                                Text("Hello! $gamertag", fontSize=13.sp, color=TxtM)
+                            }
+                            Spacer(Modifier.height(16.dp))
+
+                            // Selected server info
+                            Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.PlayArrow, null, tint=TxtM, modifier=Modifier.size(14.dp))
+                                Text("Selected Server", fontSize=12.sp, color=TxtM, fontWeight=FontWeight.Medium)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            if(tab==0 && cs!=null) {
+                                Text(cs.address, fontSize=14.sp, color=TxtP, fontWeight=FontWeight.Medium)
+                                Text("Port: ${cs.port}", fontSize=12.sp, color=TxtM, modifier=Modifier.padding(top=2.dp))
+                            } else if(tab==3 && cr!=null) {
+                                Text(cr.name, fontSize=14.sp, color=TxtP, fontWeight=FontWeight.Medium)
+                                Text("Code: ${cr.code}", fontSize=12.sp, color=TxtM, modifier=Modifier.padding(top=2.dp))
+                            } else {
+                                Text("—", fontSize=14.sp, color=TxtM)
+                            }
+
+                            Spacer(Modifier.weight(1f))
+
+                            // Relay status dot
+                            Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(6.dp),
+                                modifier=Modifier.padding(bottom=10.dp)) {
+                                Box(Modifier.size(6.dp).clip(CircleShape).background(if(ManesRelay.active!=null) Grn else TxtM))
+                                Text(if(ManesRelay.active!=null)"Relay Active" else "Idle", fontSize=10.sp, color=TxtM)
+                            }
+
+                            // START button — Lumina cream/beige style
+                            val rdy = (tab==0&&cs!=null)||(tab==3&&cr!=null)
+                            Button(
+                                onClick={
+                                    when {
+                                        tab==0&&cs!=null->{lName=cs.name;launch=true;onLaunch(cs.address,cs.port,cs.name)}
+                                        tab==3&&cr!=null->{lName=cr.name;launch=true;onLaunch("127.0.0.1",19132,cr.name)}
+                                    }
+                                },
+                                modifier=Modifier.fillMaxWidth().height(48.dp),
+                                shape=RoundedCornerShape(10.dp),
+                                enabled=rdy,
+                                colors=ButtonDefaults.buttonColors(
+                                    containerColor=StartBtn, contentColor=StartBtnTxt,
+                                    disabledContainerColor=Surf2, disabledContentColor=TxtM
+                                )
+                            ) {
+                                Icon(Icons.Default.PlayArrow, null, modifier=Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text("Start", fontSize=14.sp, fontWeight=FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
 
-                // Launch bar
-                Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(BG.a(0f), BG))).padding(horizontal=16.dp, vertical=16.dp)) {
-                    val bl=when{tab==0&&cs!=null->"▶  Launch ${cs.name}";tab==1&&cw!=null->"▶  Open ${cw.name}";tab==2&&cr!=null->"▶  Join ${cr.name}";else->"Select a destination"}
-                    val sl=when{tab==0&&cs!=null->"Connecting via Manes → ${cs.name}";tab==1&&cw!=null->"Local world via proxy";tab==2&&cr!=null->"Realm code: ${cr.code}";else->"Tap a server, world, or realm"}
-                    Button(onClick={when{
-                        tab==0&&cs!=null->{lName=cs.name;launch=true;onLaunch(cs.address,cs.port,cs.name)}
-                        tab==1&&cw!=null->{lName=cw.name;launch=true;onLaunch("127.0.0.1",19132,cw.name)}
-                        tab==2&&cr!=null->{lName=cr.name;launch=true;onLaunch("127.0.0.1",19132,cr.name)}
-                    }},modifier=Modifier.fillMaxWidth().height(52.dp),shape=RoundedCornerShape(14.dp),enabled=rdy,
-                        colors=ButtonDefaults.buttonColors(containerColor=if(rdy)Acc else Surf2,contentColor=if(rdy)Color.White else TxtM,disabledContainerColor=Surf2,disabledContentColor=TxtM)){
-                        Text(bl,fontSize=15.sp,fontWeight=FontWeight.SemiBold)}
-                    Text(sl,fontSize=12.sp,color=TxtM,modifier=Modifier.fillMaxWidth().padding(top=6.dp),textAlign=TextAlign.Center)
+                "About" -> {
+                    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+                        Text("About Manes", fontSize=18.sp, fontWeight=FontWeight.SemiBold, color=TxtP, modifier=Modifier.padding(bottom=12.dp))
+                        Text("Manes is a Minecraft Bedrock proxy client for Android.", fontSize=13.sp, color=TxtM, lineHeight=20.sp)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Compatible with Android 9.0+ devices. Uses RakNet relay to inject modules.", fontSize=13.sp, color=TxtM, lineHeight=20.sp)
+                        Spacer(Modifier.height(16.dp))
+                        Text("© 2025 Project Manes", fontSize=11.sp, color=TxtM.a(0.5f))
+                    }
                 }
+
+                "Realms" -> {
+                    Column(Modifier.fillMaxSize().padding(16.dp)) {
+                        Text("Realms", fontSize=18.sp, fontWeight=FontWeight.SemiBold, color=TxtP, modifier=Modifier.padding(bottom=12.dp))
+                        if(rlms.isEmpty()) EM("No realms yet — add an invite code")
+                        rlms.forEach { rl ->
+                            LuminaRow(rl.name, rl.id==selR) { selR = if(selR==rl.id) null else rl.id }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedButton(onClick={shAR=true}, modifier=Modifier.fillMaxWidth(),
+                            colors=ButtonDefaults.outlinedButtonColors(contentColor=TxtM)){
+                            Icon(Icons.Default.Add, null, modifier=Modifier.size(14.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Add Realm", fontSize=13.sp)
+                        }
+                    }
+                }
+
+                "Settings" -> SettingsScreen(onLogout=onLogout)
             }
         }
 
-        // Accurate draggable floating module button
+        // Draggable module button
         Box(
             Modifier
                 .offset{ IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
-                .size(52.dp)
+                .size(44.dp)
                 .clip(CircleShape)
-                .background(Brush.radialGradient(listOf(Acc, Acc.a(0.7f))))
-                .border(1.5.dp, Acc.a(0.5f), CircleShape)
+                .background(Surf2)
+                .border(1.dp, Color(0xFF4A4A55), CircleShape)
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
-                        dragX = (dragX + dragAmount.x).coerceIn(0f, (size.width - 52.dp.toPx()))
-                        dragY = (dragY + dragAmount.y).coerceIn(0f, (size.height - 52.dp.toPx()))
+                        dragX = (dragX + dragAmount.x).coerceIn(0f, (size.width - 44.dp.toPx()))
+                        dragY = (dragY + dragAmount.y).coerceIn(0f, (size.height - 44.dp.toPx()))
                     }
                 }
                 .clickable { showMods = true },
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.GridView, null, tint=Color.White, modifier=Modifier.size(22.dp))
+            Icon(Icons.Default.GridView, null, tint=TxtM, modifier=Modifier.size(20.dp))
         }
     }
 
-    // Overlays
     if(showMods) ModuleOverlay{showMods=false}
     if(launch) LO(lName){launch=false}
-    if(showProfile) AlertDialog(onDismissRequest={showProfile=false},containerColor=Surf,
-        title={Text("Account",color=TxtP)},
-        text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
-            Text("Signed in as:",fontSize=12.sp,color=TxtM)
-            Text(gamertag,fontSize=16.sp,fontWeight=FontWeight.Medium,color=TxtP)
-        }},
-        confirmButton={Button(onClick={showProfile=false;onLogout()},colors=ButtonDefaults.buttonColors(containerColor=RedC)){Text("Sign Out")}},
-        dismissButton={TextButton({showProfile=false}){Text("Close",color=TxtM)}})
-
     if(shAS)ASD({shAS=false}){n,a,p->srvs=srvs+ServerEntry(UUID.randomUUID().toString(),n,a,p);saveSrv(srvs);shAS=false}
-    if(shAW)AWD({shAW=false}){n->wlds=wlds+WorldEntry(UUID.randomUUID().toString(),n,"Just added");saveWld(wlds);shAW=false}
     if(shAR)ARD({shAR=false}){n,c->rlms=rlms+RealmEntry(UUID.randomUUID().toString(),n,c);saveRlm(rlms);shAR=false}
+}
+
+// Lumina-style simple server row
+@Composable fun LuminaRow(name: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .background(if(selected) Surf2 else Color.Transparent)
+            .clickable(onClick=onClick)
+            .padding(horizontal=12.dp, vertical=11.dp),
+        verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.SpaceBetween
+    ) {
+        Text(name, fontSize=13.sp, color=if(selected) TxtP else TxtM)
+        if(selected) Icon(Icons.Default.Check, null, tint=TxtP, modifier=Modifier.size(14.dp))
+    }
 }
 
 // Settings screen
