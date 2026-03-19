@@ -21,8 +21,15 @@ jobs:
         with:
           gradle-version: '8.6'
 
-      - name: Generate gradlew
-        run: gradle wrapper --gradle-version 8.6
+      - name: Generate gradlew in temp folder
+        run: |
+          mkdir /tmp/wrapper
+          cd /tmp/wrapper
+          echo "plugins {}" > build.gradle
+          gradle wrapper --gradle-version 8.6
+          cp gradlew $GITHUB_WORKSPACE/
+          cp gradlew.bat $GITHUB_WORKSPACE/
+          cp -r gradle/wrapper $GITHUB_WORKSPACE/gradle/
 
       - name: Make gradlew executable
         run: chmod +x gradlew
