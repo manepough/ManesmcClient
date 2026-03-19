@@ -55,6 +55,7 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
 import java.util.UUID
+import android.provider.Settings
 
 // Colors
 private val BG    = Color(0xFF0D0D0F)
@@ -317,7 +318,7 @@ object ManesRelay {
         stop(); currentTarget=displayName
         val ses=RelaySession().also{active=it}
         val group=NioEventLoopGroup()
-        val pong=BedrockPong().edition("MCPE").motd("Manes » $displayName").subMotd("Join to connect").playerCount(0).maximumPlayerCount(1).gameType("Survival").protocolVersion(818).version("1.21.80")
+        val pong=BedrockPong().edition("MCPE").motd("Manes >> $displayName").subMotd("Join to connect").playerCount(0).maximumPlayerCount(1).gameType("Survival").protocolVersion(818).version("1.21.80")
         val pongBuf:ByteBuf=try{pong.toByteBuf() as ByteBuf}catch(_:Exception){Unpooled.wrappedBuffer(pong.toByteBuf() as ByteArray)}
         ServerBootstrap()
             .channelFactory(RakChannelFactory.server(NioDatagramChannel::class.java))
@@ -347,6 +348,18 @@ class MainActivity : ComponentActivity() {
     private val defServers=listOf(ServerEntry("hive","The Hive","geo.hivebedrock.network",19132),ServerEntry("cube","CubeCraft","mco.cubecraft.net",19132),ServerEntry("lbsg","Lifeboat","play.lbsg.net",19132),ServerEntry("mnpl","Mineplex","pe.mineplex.com",19132),ServerEntry("neth","NetherGames","play.nethergames.org",19132))
     override fun onCreate(s: Bundle?) {
         super.onCreate(s)
+        // Ask for overlay permission on first launch
+        if (!OverlayService.hasPermission(this)) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Overlay Permission Needed")
+                .setMessage("Manes needs \"Display over other apps\" permission to show the module button inside Minecraft.")
+                .setPositiveButton("Allow") { _, _ ->
+                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:$packageName")))
+                }
+                .setNegativeButton("Skip") { d, _ -> d.dismiss() }
+                .show()
+        }
         val sv=Store.loadServers(this).ifEmpty{defServers.toMutableList()}
         val wv=Store.loadWorlds(this)
         val rv=Store.loadRealms(this)
@@ -356,15 +369,18 @@ class MainActivity : ComponentActivity() {
             else ManesApp(sv,wv,rv,Store.loadStr(this,"gamertag"),{Store.saveServers(this,it)},{Store.saveWorlds(this,it)},{Store.saveRealms(this,it)},{addr,port,name->doLaunch(addr,port,name)},{Store.saveStr(this,"gamertag","");recreate()})
         }}
     }
-    override fun onDestroy() { super.onDestroy(); ManesRelay.stop() }
+    override fun onDestroy() { super.onDestroy(); ManesRelay.stop(); OverlayService.stop(this) }
     private fun doLaunch(addr: String, port: Int, name: String) {
         Thread{try{ManesRelay.start(addr,port,name)}catch(e:Exception){e.printStackTrace()}}.apply{isDaemon=true}.start()
-        Handler(Looper.getMainLooper()).postDelayed({try{startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("minecraft://?addExternalServer=Manes+»+${Uri.encode(name)}%7C127.0.0.1:19132")))}catch(_:Exception){}},1500)
+        if (OverlayService.hasPermission(this)) {
+            OverlayService.start(this)
+        }
+        Handler(Looper.getMainLooper()).postDelayed({try{startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("minecraft://?addExternalServer=Manes+${Uri.encode(name)}%7C127.0.0.1:19132")))}catch(_:Exception){}},1500)
     }
 }
 
 // Theme
-@Composable fun AppTheme(c: @Composable () ->Unit)=MaterialTheme(colorScheme=darkColorScheme(background=BG,surface=Surf,primary=Acc,onPrimary=Color.White,onBackground=TxtP,onSurface=TxtP),content=c)
+@Composable fun AppTheme(c: @Composable () -> Unit)=MaterialTheme(colorScheme=darkColorScheme(background=BG,surface=Surf,primary=Acc,onPrimary=Color.White,onBackground=TxtP,onSurface=TxtP),content=c)
 
 // Login screen
 @Composable fun LoginScreen(onLogin: (String)->Unit) {
