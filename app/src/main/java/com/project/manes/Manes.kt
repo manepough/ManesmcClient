@@ -331,7 +331,7 @@ object ManesRelay {
         stop(); currentTarget=displayName
         val ses=RelaySession().also{active=it}
         val group=NioEventLoopGroup()
-        val pong=BedrockPong().edition("MCPE").motd("Manes >> $displayName").subMotd("Join to connect").playerCount(0).maximumPlayerCount(1).gameType("Survival")..protocolVersion(924).version("1.26.3").nintendoLimited(false)
+        val pong=BedrockPong().edition("MCPE").motd("Manes >> $displayName").subMotd("Join to connect").playerCount(0).maximumPlayerCount(1).gameType("Survival")..protocolVersion(924).version("1.26.3")
         val pongBuf:ByteBuf=try{pong.toByteBuf() as ByteBuf}catch(_:Exception){Unpooled.wrappedBuffer(pong.toByteBuf() as ByteArray)}
         ServerBootstrap()
             .channelFactory(RakChannelFactory.server(NioDatagramChannel::class.java))
