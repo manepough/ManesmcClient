@@ -437,7 +437,7 @@ object ManesRelay {
             .group(group)
             // Key options from Lumina
             .option(RakChannelOption.RAK_ADVERTISEMENT, pongBuf)
-            .option(RakChannelOption.RAK_GUID, ThreadLocalRandom.current().nextLong())
+            .option(RakChannelOption.RAK_PROTOCOL_VERSION, 11)
             .option(RakChannelOption.RAK_PROTOCOL_VERSION, defaultCodec.raknetProtocolVersion)
             .childHandler(object : BedrockServerInitializer() {
                 override fun initSession(srv: BedrockServerSession) {
@@ -450,7 +450,7 @@ object ManesRelay {
                                 val codec = ProtocolHelper.pickCodec(pkt.protocolVersion) ?: defaultCodec
                                 srv.codec = codec
                                 // Send NetworkSettingsPacket back to client
-                                val netSettings = NetworkSettingsPacket()
+                                netSettings.compressionThreshold = 0
                                 netSettings.compressionThreshold = 512
                                 netSettings.compressionAlgorithm = org.cloudburstmc.protocol.bedrock.data.PacketCompressionAlgorithm.ZLIB
                                 srv.sendPacketImmediately(netSettings)
