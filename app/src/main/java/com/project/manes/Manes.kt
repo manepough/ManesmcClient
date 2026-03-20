@@ -454,7 +454,7 @@ class MainActivity : ComponentActivity() {
                     cubicTo(w*0.25f, y-30f+(i*8f), w*0.5f, y+20f-(i*5f), w*0.75f, y-15f+(i*6f))
                     cubicTo(w*0.85f, y+10f, w*0.95f, y-5f, w, y+8f)
                 }
-                drawPath(path, waveColor.copy(alpha = 0.4f - i*0.08f), style = androidx.compose.ui.graphics.drawscope.Stroke(strokeWidth = 1.2f))
+                drawPath(path, waveColor.copy(alpha = 0.4f - i*0.08f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.2f))
             }
         }
 
@@ -551,7 +551,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
 
             // TOP NAV — "Lumina | Home About Realms Settings" exactly like Lumina
             Row(
-                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp, top=44.dp, bottom=0.dp),
+                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp).padding(top=44.dp),
                 verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.SpaceBetween
             ) {
