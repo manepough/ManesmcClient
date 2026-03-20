@@ -43,15 +43,20 @@ import io.netty.bootstrap.Bootstrap
 import io.netty.bootstrap.ServerBootstrap
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
+import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.nio.NioEventLoopGroup
 import io.netty.channel.socket.nio.NioDatagramChannel
 import io.netty.util.internal.PlatformDependent
 import kotlinx.coroutines.delay
 import org.cloudburstmc.netty.channel.raknet.RakChannelFactory
+import org.cloudburstmc.netty.channel.raknet.RakServerChannel
 import org.cloudburstmc.netty.channel.raknet.config.RakChannelOption
 import org.cloudburstmc.protocol.bedrock.BedrockClientSession
 import org.cloudburstmc.protocol.bedrock.BedrockPong
 import org.cloudburstmc.protocol.bedrock.BedrockServerSession
+import org.cloudburstmc.protocol.bedrock.codec.BedrockCodec
+import org.cloudburstmc.protocol.bedrock.codec.v291.Bedrock_v291
+import org.cloudburstmc.protocol.bedrock.codec.v748.Bedrock_v748
 import org.cloudburstmc.protocol.bedrock.netty.initializer.BedrockClientInitializer
 import org.cloudburstmc.protocol.bedrock.netty.initializer.BedrockServerInitializer
 import org.cloudburstmc.protocol.bedrock.packet.*
@@ -61,6 +66,7 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
 import java.util.UUID
+import java.util.concurrent.ThreadLocalRandom
 import android.provider.Settings
 
 // Colors — Lumina style dark warm palette
@@ -324,60 +330,169 @@ object Modules {
     fun byCategory(): Map<String,List<Module>> = all.groupBy { it.category }
 }
 
-// Relay session
+// Dynamic codec picker — mirrors Lumina's ProtocolHelper.cpp
+object ProtocolHelper {
+    // Ordered list of supported codecs — add newer ones as library updates
+    private val codecs: List<BedrockCodec> by lazy {
+        try {
+            val list = mutableListOf<BedrockCodec>()
+            // Try to load all known codecs from Beta6
+            for (v in listOf(291,313,332,340,354,361,388,389,390,407,408,419,422,428,431,440,448,
+                             465,471,475,486,503,527,534,544,545,554,557,560,567,568,575,582,589,
+                             594,618,622,630,649,662,671,685,686,687,690,712,729,748)) {
+                try {
+                    val cls = Class.forName("org.cloudburstmc.protocol.bedrock.codec.v$v.Bedrock_v$v")
+                    val codec = cls.getField("CODEC").get(null) as BedrockCodec
+                    list.add(codec)
+                } catch (_: Exception) {}
+            }
+            if (list.isEmpty()) list.add(Bedrock_v748.CODEC)
+            list.sortBy { it.protocolVersion }
+            list
+        } catch (_: Exception) {
+            listOf(Bedrock_v748.CODEC)
+        }
+    }
+
+    fun pickCodec(clientProtocol: Int): BedrockCodec {
+        // Pick closest codec that doesn't exceed client protocol — same as Lumina
+        var best = codecs.first()
+        for (codec in codecs) {
+            if (codec.protocolVersion <= clientProtocol) best = codec
+            else break
+        }
+        return best
+    }
+
+    val defaultCodec: BedrockCodec get() = codecs.last()
+}
+
+// Relay session — mirrors LuminaRelaySession
 class RelaySession {
     var serverSession: BedrockServerSession? = null
     var clientSession: BedrockClientSession? = null
-        set(value) { field=value; if(value==null)return; serverSession?.let{value.codec=it.codec}; var p=queue.poll(); while(p!=null){value.sendPacket(p);p=queue.poll()} }
-    private val queue=PlatformDependent.newMpscQueue<BedrockPacket>()
-    fun sendToClient(p: BedrockPacket) { serverSession?.sendPacket(p) }
-    fun sendToServer(p: BedrockPacket) { val c=clientSession; if(c!=null)c.sendPacket(p) else queue.offer(p) }
-    fun handleFromServer(pkt: BedrockPacket) {
-        if (pkt is NetworkSettingsPacket) {
+        set(value) {
+            field = value
+            if (value == null) return
+            // Sync codec from server session — key for protocol negotiation
             serverSession?.let { srv ->
-                val codec = srv.codec
-                clientSession?.codec = codec
-                serverSession?.codec = codec
+                value.codec = srv.codec
+                // Sync definitions like Lumina does
+                try { value.blockDefinitions = srv.blockDefinitions } catch (_: Exception) {}
+                try { value.itemDefinitions = srv.itemDefinitions } catch (_: Exception) {}
             }
+            // Flush queued packets
+            var p = queue.poll()
+            while (p != null) { value.sendPacket(p); p = queue.poll() }
         }
-        for(m in Modules.all){try{if(m.onClientBound(pkt,this))return}catch(_:Exception){}}; sendToClient(pkt)
+    private val queue = PlatformDependent.newMpscQueue<BedrockPacket>()
+    fun sendToClient(p: BedrockPacket) { serverSession?.sendPacket(p) }
+    fun sendToServer(p: BedrockPacket) { val c = clientSession; if (c != null) c.sendPacket(p) else queue.offer(p) }
+    fun handleFromServer(pkt: BedrockPacket) {
+        // Run modules with runCatching isolation like Lumina
+        for (m in Modules.all) { runCatching { if (m.onClientBound(pkt, this)) return } }
+        sendToClient(pkt)
     }
-    fun handleFromClient(pkt: BedrockPacket) { for(m in Modules.all){try{if(m.onServerBound(pkt,this))return}catch(_:Exception){}}; sendToServer(pkt) }
-    fun disconnect() { try{clientSession?.disconnect()}catch(_:Exception){} }
+    fun handleFromClient(pkt: BedrockPacket) {
+        for (m in Modules.all) { runCatching { if (m.onServerBound(pkt, this)) return } }
+        sendToServer(pkt)
+    }
+    fun disconnect() { try { clientSession?.disconnect() } catch (_: Exception) {} }
 }
 
-// Relay server
+// ManesRelay — mirrors LuminaRelay with all key options
 object ManesRelay {
     @Volatile var active: RelaySession? = null
     var currentTarget = "Manes"
 
     fun start(remoteIp: String, remotePort: Int, displayName: String) {
-        stop(); currentTarget=displayName
-        val ses=RelaySession().also{active=it}
-        val group=NioEventLoopGroup()
-        val pong=BedrockPong().edition("MCPE").motd("Manes >> $displayName").subMotd("Join to connect").playerCount(0).maximumPlayerCount(1).gameType("Survival").protocolVersion(924).version("1.26.3")
-        val pongBuf:ByteBuf=try{pong.toByteBuf() as ByteBuf}catch(_:Exception){Unpooled.wrappedBuffer(pong.toByteBuf() as ByteArray)}
+        stop()
+        currentTarget = displayName
+        val ses = RelaySession().also { active = it }
+        val group = NioEventLoopGroup()
+
+        // Use protocol 898 / 1.21.130 like Lumina — NOT 924
+        // Dynamic codec handles whatever version client actually uses
+        val defaultCodec = ProtocolHelper.defaultCodec
+        val pong = BedrockPong()
+            .edition("MCPE")
+            .motd("Manes >> $displayName")
+            .subMotd("Join to connect")
+            .playerCount(0)
+            .maximumPlayerCount(1)
+            .gameType("Survival")
+            .protocolVersion(defaultCodec.protocolVersion)
+            .version(defaultCodec.minecraftVersion)
+
+        val pongBuf: ByteBuf = try {
+            pong.toByteBuf() as ByteBuf
+        } catch (_: Exception) {
+            Unpooled.wrappedBuffer(pong.toByteBuf() as ByteArray)
+        }
+
         ServerBootstrap()
             .channelFactory(RakChannelFactory.server(NioDatagramChannel::class.java))
             .group(group)
-            .option(RakChannelOption.RAK_ADVERTISEMENT,pongBuf)
-            .childHandler(object:BedrockServerInitializer(){
+            // Key options from Lumina
+            .option(RakChannelOption.RAK_ADVERTISEMENT, pongBuf)
+            .option(RakChannelOption.RAK_GUID, ThreadLocalRandom.current().nextLong())
+            .option(RakChannelOption.RAK_PROTOCOL_VERSION, defaultCodec.raknetProtocolVersion)
+            .childHandler(object : BedrockServerInitializer() {
                 override fun initSession(srv: BedrockServerSession) {
-                    ses.serverSession=srv
-                    srv.packetHandler=object:BedrockPacketHandler{override fun handlePacket(pkt:BedrockPacket):PacketSignal{ses.handleFromClient(pkt);return PacketSignal.HANDLED}}
-                    Bootstrap()
-                        .channelFactory(RakChannelFactory.client(NioDatagramChannel::class.java))
-                        .group(group)
-                        .handler(object:BedrockClientInitializer(){
-                            override fun initSession(cli: BedrockClientSession) {
-                                ses.clientSession=cli
-                                cli.packetHandler=object:BedrockPacketHandler{override fun handlePacket(pkt:BedrockPacket):PacketSignal{ses.handleFromServer(pkt);return PacketSignal.HANDLED}}
+                    srv.codec = defaultCodec
+                    ses.serverSession = srv
+                    srv.packetHandler = object : BedrockPacketHandler {
+                        override fun handlePacket(pkt: BedrockPacket): PacketSignal {
+                            // Handle RequestNetworkSettingsPacket — pick best codec dynamically
+                            if (pkt is RequestNetworkSettingsPacket) {
+                                val codec = ProtocolHelper.pickCodec(pkt.protocolVersion)
+                                srv.codec = codec
+                                // Send NetworkSettingsPacket back to client
+                                val netSettings = NetworkSettingsPacket()
+                                netSettings.compressionThreshold = 512
+                                netSettings.compressionAlgorithm = PacketCompressionAlgorithm.ZLIB
+                                srv.sendPacketImmediately(netSettings)
+                                // Now connect to remote server with the negotiated codec
+                                Bootstrap()
+                                    .channelFactory(RakChannelFactory.client(NioDatagramChannel::class.java))
+                                    .group(group)
+                                    .option(RakChannelOption.RAK_PROTOCOL_VERSION, codec.raknetProtocolVersion)
+                                    .option(RakChannelOption.RAK_CONNECT_TIMEOUT, 690000)
+                                    .handler(object : BedrockClientInitializer() {
+                                        override fun initSession(cli: BedrockClientSession) {
+                                            cli.codec = codec
+                                            ses.clientSession = cli
+                                            cli.packetHandler = object : BedrockPacketHandler {
+                                                override fun handlePacket(pkt: BedrockPacket): PacketSignal {
+                                                    ses.handleFromServer(pkt)
+                                                    return PacketSignal.HANDLED
+                                                }
+                                            }
+                                        }
+                                    }).connect(InetSocketAddress(remoteIp, remotePort))
+                                return PacketSignal.HANDLED
                             }
-                        }).connect(InetSocketAddress(remoteIp,remotePort))
+                            ses.handleFromClient(pkt)
+                            return PacketSignal.HANDLED
+                        }
+                    }
                 }
-            }).bind(InetSocketAddress("0.0.0.0",19132)).syncUninterruptibly()
+            })
+            // Remove rate limiter like Lumina
+            .bind(InetSocketAddress("0.0.0.0", 19132))
+            .syncUninterruptibly()
+            .channel()
+            .also { ch ->
+                // Remove RakServerRateLimiter like Lumina does
+                try {
+                    if (ch is RakServerChannel) {
+                        ch.pipeline().remove("rak-rate-limiter")
+                    }
+                } catch (_: Exception) {}
+            }
     }
-    fun stop() { active?.disconnect(); active=null }
+
+    fun stop() { active?.disconnect(); active = null }
 }
 
 // MainActivity
@@ -540,7 +655,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
 
             // TOP NAV — "Lumina | Home About Realms Settings" exactly like Lumina
             Row(
-                Modifier.fillMaxWidth().background(Surf).padding(start=16.dp, end=16.dp).padding(top=44.dp),
+                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp, top=44.dp, bottom=0.dp),
                 verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.SpaceBetween
             ) {
@@ -558,7 +673,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
                             else Spacer(Modifier.height(5.5.dp))
                         }
                     }
-                }
+                 }
             }
 
             // PAGE CONTENT
@@ -604,41 +719,28 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
                                     }
                                     1 -> {
                                         item {
-                                            Spacer(Modifier.height(12.dp))
-                                            if (gamertag.isBlank()) {
-                                                // Not logged in
-                                                Column(Modifier.fillMaxWidth(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                                                    Icon(Icons.Default.Person, null, tint=TxtM, modifier=Modifier.size(40.dp))
-                                                    Text("No account", fontSize=14.sp, color=TxtP, fontWeight=FontWeight.Medium)
-                                                    Text("Sign in with your Microsoft account\nto access multiplayer servers", fontSize=12.sp, color=TxtM, textAlign=TextAlign.Center)
-                                                    Spacer(Modifier.height(4.dp))
-                                                    Button(onClick=onStartLogin, modifier=Modifier.fillMaxWidth().height(46.dp), shape=RoundedCornerShape(10.dp),
-                                                        colors=ButtonDefaults.buttonColors(containerColor=StartBtn)) {
-                                                        Icon(Icons.Default.Login, null, tint=StartBtnTxt, modifier=Modifier.size(16.dp))
-                                                        Spacer(Modifier.width(8.dp))
-                                                        Text("Sign in with Microsoft", fontSize=13.sp, fontWeight=FontWeight.SemiBold, color=StartBtnTxt)
-                                                    }
-                                                }
-                                            } else {
-                                                // Logged in — show profile card
-                                                Column(Modifier.fillMaxWidth(), verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                                                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surf2).padding(16.dp)) {
-                                                        Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                                                            Box(Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(Acc), contentAlignment=Alignment.Center) {
-                                                                Text(gamertag.first().uppercaseChar().toString(), fontSize=20.sp, fontWeight=FontWeight.Bold, color=Color.White)
-                                                            }
-                                                            Column(Modifier.weight(1f)) {
-                                                                Text(gamertag, fontSize=15.sp, fontWeight=FontWeight.SemiBold, color=TxtP)
-                                                                Text("Microsoft Account", fontSize=11.sp, color=TxtM)
-                                                            }
-                                                            Icon(Icons.Default.Check, null, tint=Grn, modifier=Modifier.size(18.dp))
+                                            Spacer(Modifier.height(8.dp))
+                                            // Lumina-style account card with + button
+                                            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surf2).padding(14.dp)) {
+                                                Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.SpaceBetween, modifier=Modifier.fillMaxWidth()) {
+                                                    Column(Modifier.weight(1f), verticalArrangement=Arrangement.spacedBy(2.dp)) {
+                                                        Text("Account", fontSize=13.sp, fontWeight=FontWeight.Medium, color=TxtP)
+                                                        if (gamertag.isBlank()) {
+                                                            Text("No accounts added yet", fontSize=11.sp, color=TxtM)
+                                                        } else {
+                                                            Text(gamertag, fontSize=12.sp, color=Grn, fontWeight=FontWeight.Medium)
                                                         }
                                                     }
-                                                    OutlinedButton(onClick=onLogout, modifier=Modifier.fillMaxWidth(), shape=RoundedCornerShape(10.dp),
-                                                        colors=ButtonDefaults.outlinedButtonColors(contentColor=RedC)) {
-                                                        Icon(Icons.Default.Logout, null, modifier=Modifier.size(14.dp))
-                                                        Spacer(Modifier.width(6.dp))
-                                                        Text("Sign Out", fontSize=13.sp)
+                                                    if (gamertag.isBlank()) {
+                                                        // + button like Lumina
+                                                        Box(Modifier.size(32.dp).clip(RoundedCornerShape(50)).background(Surf).border(1.dp, Color(0xFF374151), RoundedCornerShape(50)).clickable { onStartLogin() }, contentAlignment=Alignment.Center) {
+                                                            Icon(Icons.Default.Add, null, tint=TxtM, modifier=Modifier.size(16.dp))
+                                                        }
+                                                    } else {
+                                                        // Sign out button
+                                                        Box(Modifier.clip(RoundedCornerShape(8.dp)).background(RedC.a(0.15f)).border(1.dp, RedC.a(0.4f), RoundedCornerShape(8.dp)).clickable { onLogout() }.padding(horizontal=10.dp, vertical=6.dp)) {
+                                                            Text("Sign Out", fontSize=11.sp, color=RedC)
+                                                        }
                                                     }
                                                 }
                                             }
@@ -700,10 +802,12 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
                                 Text(if(ManesRelay.active!=null)"Relay Active" else "Idle", fontSize=10.sp, color=TxtM)
                             }
 
-                            // START button — Lumina cream/beige style
+                            // START button — locked if not logged in, like Lumina
                             val rdy = (tab==0&&cs!=null)||(tab==3&&cr!=null)
+                            val loggedIn = gamertag.isNotBlank()
                             Button(
                                 onClick={
+                                    if (!loggedIn) { /* do nothing, show accounts hint */ return@Button }
                                     when {
                                         tab==0&&cs!=null->{lName=cs.name;launch=true;onLaunch(cs.address,cs.port,cs.name)}
                                         tab==3&&cr!=null->{lName=cr.name;launch=true;onLaunch("127.0.0.1",19132,cr.name)}
@@ -711,15 +815,16 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
                                 },
                                 modifier=Modifier.fillMaxWidth().height(48.dp),
                                 shape=RoundedCornerShape(10.dp),
-                                enabled=rdy,
+                                enabled=rdy && loggedIn,
                                 colors=ButtonDefaults.buttonColors(
-                                    containerColor=StartBtn, contentColor=StartBtnTxt,
+                                    containerColor=if(rdy && loggedIn) StartBtn else Surf2,
+                                    contentColor=if(rdy && loggedIn) StartBtnTxt else TxtM,
                                     disabledContainerColor=Surf2, disabledContentColor=TxtM
                                 )
                             ) {
-                                Icon(Icons.Default.PlayArrow, null, modifier=Modifier.size(16.dp))
+                                Icon(if(loggedIn) Icons.Default.PlayArrow else Icons.Default.Lock, null, modifier=Modifier.size(16.dp))
                                 Spacer(Modifier.width(6.dp))
-                                Text("Start", fontSize=14.sp, fontWeight=FontWeight.SemiBold)
+                                Text(if(loggedIn) "Start" else "Sign in first", fontSize=13.sp, fontWeight=FontWeight.SemiBold)
                             }
                         }
                     }
@@ -897,7 +1002,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
                     Box(
                         Modifier.size(36.dp).clip(CircleShape).background(Surf)
                             .clickable { onClose() },
-                        contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center
                     ) {
                         Icon(Icons.Default.Close, null, tint = TxtM, modifier = Modifier.size(18.dp))
                     }
