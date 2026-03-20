@@ -378,8 +378,6 @@ class RelaySession {
             serverSession?.let { srv ->
                 value.codec = srv.codec
                 // Sync definitions like Lumina does
-                try { value.blockDefinitions = srv.blockDefinitions } catch (_: Exception) {}
-                try { value.itemDefinitions = srv.itemDefinitions } catch (_: Exception) {}
             }
             // Flush queued packets
             var p = queue.poll()
@@ -450,7 +448,7 @@ object ManesRelay {
                                 // Send NetworkSettingsPacket back to client
                                 val netSettings = NetworkSettingsPacket()
                                 netSettings.compressionThreshold = 512
-                                netSettings.compressionAlgorithm = PacketCompressionAlgorithm.ZLIB
+                                netSettings.compressionAlgorithm = org.cloudburstmc.protocol.bedrock.data.PacketCompressionAlgorithm.ZLIB
                                 srv.sendPacketImmediately(netSettings)
                                 // Now connect to remote server with the negotiated codec
                                 Bootstrap()
