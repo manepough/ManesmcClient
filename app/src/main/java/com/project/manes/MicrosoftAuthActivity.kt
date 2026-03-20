@@ -27,9 +27,9 @@ class MicrosoftAuthActivity : Activity() {
             "https://login.live.com/oauth20_authorize.srf" +
             "?client_id=$CLIENT_ID" +
             "&response_type=code" +
-            "&scope=service::user.auth.xboxlive.com::MBI_SSL" +
+            "&scope=XboxLive.signin%20offline_access" +
             "&redirect_uri=$REDIRECT" +
-            "&display=touch" +
+            "&display=touch"
             "&prompt=select_account"
 
         // Try to silently refresh using stored refresh_token
@@ -219,7 +219,7 @@ class MicrosoftAuthActivity : Activity() {
         try {
             val msResp = postFormStatic(
                 "https://login.live.com/oauth20_token.srf",
-                "client_id=$CLIENT_ID&code=$code&grant_type=authorization_code&redirect_uri=$REDIRECT"
+                "client_id=$CLIENT_ID&code=$code&grant_type=authorization_code&redirect_uri=$REDIRECT&scope=XboxLive.signin%20offline_access"
             )
             val msToken = msResp.getString("access_token")
             // Save refresh token — next login will be silent!
