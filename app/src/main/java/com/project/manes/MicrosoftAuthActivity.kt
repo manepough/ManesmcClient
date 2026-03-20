@@ -29,7 +29,7 @@ class MicrosoftAuthActivity : Activity() {
             "&response_type=code" +
             "&scope=XboxLive.signin%20offline_access" +
             "&redirect_uri=$REDIRECT" +
-            "&display=touch"
+            "&display=touch" +
             "&prompt=select_account"
 
         // Try to silently refresh using stored refresh_token
