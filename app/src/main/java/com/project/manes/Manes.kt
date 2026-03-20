@@ -420,31 +420,20 @@ class MainActivity : ComponentActivity() {
         val sv = Store.loadServers(this).ifEmpty { defServers.toMutableList() }
         val wv = Store.loadWorlds(this)
         val rv = Store.loadRealms(this)
-        val gamertag = Store.loadStr(this, "gamertag")
-        val loggedIn = gamertag.isNotBlank()
 
         setContent {
             AppTheme {
-                if (!loggedIn) {
-                    SplashScreen(
-                        onStartMicrosoftLogin = {
-                            authLauncher.launch(Intent(this, MicrosoftAuthActivity::class.java))
-                        }
-                    )
-                } else {
-                    ManesApp(
-                        sv, wv, rv, gamertag,
-                        { Store.saveServers(this, it) },
-                        { Store.saveWorlds(this, it) },
-                        { Store.saveRealms(this, it) },
-                        { addr, port, name -> doLaunch(addr, port, name) },
-                        {
-                            Store.saveStr(this, "gamertag", "")
-                            Store.saveStr(this, "mc_token", "")
-                            recreate()
-                        }
-                    )
-                }
+                // Always go straight to main app — no forced login screen
+                ManesApp(
+                    sv, wv, rv,
+                    Store.loadStr(this, "gamertag"),
+                    { Store.saveServers(this, it) },
+                    { Store.saveWorlds(this, it) },
+                    { Store.saveRealms(this, it) },
+                    { addr, port, name -> doLaunch(addr, port, name) },
+                    { Store.saveStr(this,"gamertag",""); Store.saveStr(this,"mc_token",""); recreate() },
+                    onStartLogin = { authLauncher.launch(Intent(this, MicrosoftAuthActivity::class.java)) }
+                )
             }
         }
     }
@@ -460,9 +449,8 @@ class MainActivity : ComponentActivity() {
                 startActivity(Intent(Intent.ACTION_VIEW,
                     Uri.parse("minecraft://?addExternalServer=Manes+Proxy+${Uri.encode(name)}%7C127.0.0.1:19132")))
             } catch (_: Exception) {
-                try {
-                    packageManager.getLaunchIntentForPackage("com.mojang.minecraftpe")?.let { startActivity(it) }
-                } catch (_: Exception) {}
+                try { packageManager.getLaunchIntentForPackage("com.mojang.minecraftpe")?.let { startActivity(it) } }
+                catch (_: Exception) {}
             }
             android.widget.Toast.makeText(this, "Join 'Manes Proxy $name' in Minecraft Servers tab", android.widget.Toast.LENGTH_LONG).show()
         }, 1200)
@@ -526,7 +514,7 @@ class MainActivity : ComponentActivity() {
 
 // Main app — exact Lumina UI layout
 @Composable
-fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<RealmEntry>,gamertag:String,saveSrv:(List<ServerEntry>)->Unit,saveWld:(List<WorldEntry>)->Unit,saveRlm:(List<RealmEntry>)->Unit,onLaunch:(String,Int,String)->Unit,onLogout:()->Unit) {
+fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<RealmEntry>,gamertag:String,saveSrv:(List<ServerEntry>)->Unit,saveWld:(List<WorldEntry>)->Unit,saveRlm:(List<RealmEntry>)->Unit,onLaunch:(String,Int,String)->Unit,onLogout:()->Unit,onStartLogin:()->Unit={}) {
     var navPage by remember{mutableStateOf("Home")} // Home, About, Realms, Settings
     var tab by remember{mutableStateOf(0)} // 0=Servers,1=Accounts,2=Packs,3=Realms
     var srvs by remember{mutableStateOf(initSrv)}
@@ -552,7 +540,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
 
             // TOP NAV — "Lumina | Home About Realms Settings" exactly like Lumina
             Row(
-                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp).padding(top=44.dp),
+                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp, top=44.dp, bottom=0.dp),
                 verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.SpaceBetween
             ) {
@@ -614,7 +602,48 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
                                             }
                                         }
                                     }
-                                    1 -> { item { EM("Accounts coming soon") } }
+                                    1 -> {
+                                        item {
+                                            Spacer(Modifier.height(12.dp))
+                                            if (gamertag.isBlank()) {
+                                                // Not logged in
+                                                Column(Modifier.fillMaxWidth(), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                                                    Icon(Icons.Default.Person, null, tint=TxtM, modifier=Modifier.size(40.dp))
+                                                    Text("No account", fontSize=14.sp, color=TxtP, fontWeight=FontWeight.Medium)
+                                                    Text("Sign in with your Microsoft account\nto access multiplayer servers", fontSize=12.sp, color=TxtM, textAlign=TextAlign.Center)
+                                                    Spacer(Modifier.height(4.dp))
+                                                    Button(onClick=onStartLogin, modifier=Modifier.fillMaxWidth().height(46.dp), shape=RoundedCornerShape(10.dp),
+                                                        colors=ButtonDefaults.buttonColors(containerColor=StartBtn)) {
+                                                        Icon(Icons.Default.Login, null, tint=StartBtnTxt, modifier=Modifier.size(16.dp))
+                                                        Spacer(Modifier.width(8.dp))
+                                                        Text("Sign in with Microsoft", fontSize=13.sp, fontWeight=FontWeight.SemiBold, color=StartBtnTxt)
+                                                    }
+                                                }
+                                            } else {
+                                                // Logged in — show profile card
+                                                Column(Modifier.fillMaxWidth(), verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                                                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Surf2).padding(16.dp)) {
+                                                        Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                                                            Box(Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(Acc), contentAlignment=Alignment.Center) {
+                                                                Text(gamertag.first().uppercaseChar().toString(), fontSize=20.sp, fontWeight=FontWeight.Bold, color=Color.White)
+                                                            }
+                                                            Column(Modifier.weight(1f)) {
+                                                                Text(gamertag, fontSize=15.sp, fontWeight=FontWeight.SemiBold, color=TxtP)
+                                                                Text("Microsoft Account", fontSize=11.sp, color=TxtM)
+                                                            }
+                                                            Icon(Icons.Default.Check, null, tint=Grn, modifier=Modifier.size(18.dp))
+                                                        }
+                                                    }
+                                                    OutlinedButton(onClick=onLogout, modifier=Modifier.fillMaxWidth(), shape=RoundedCornerShape(10.dp),
+                                                        colors=ButtonDefaults.outlinedButtonColors(contentColor=RedC)) {
+                                                        Icon(Icons.Default.Logout, null, modifier=Modifier.size(14.dp))
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Text("Sign Out", fontSize=13.sp)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                     2 -> { item { EM("Packs coming soon") } }
                                     3 -> {
                                         items(rlms, key={it.id}) { rl ->
@@ -648,7 +677,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
 
                             // Selected server info
                             Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                                 Icon(Icons.Default.PlayArrow, null, tint=TxtM, modifier=Modifier.size(14.dp))
+                                Icon(Icons.Default.PlayArrow, null, tint=TxtM, modifier=Modifier.size(14.dp))
                                 Text("Selected Server", fontSize=12.sp, color=TxtM, fontWeight=FontWeight.Medium)
                             }
                             Spacer(Modifier.height(8.dp))
