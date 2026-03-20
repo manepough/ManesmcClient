@@ -450,8 +450,8 @@ object ManesRelay {
                                 val codec = ProtocolHelper.pickCodec(pkt.protocolVersion) ?: defaultCodec
                                 srv.codec = codec
                                 // Send NetworkSettingsPacket back to client
+                                val netSettings = NetworkSettingsPacket()
                                 netSettings.compressionThreshold = 0
-                                netSettings.compressionThreshold = 512
                                 netSettings.compressionAlgorithm = org.cloudburstmc.protocol.bedrock.data.PacketCompressionAlgorithm.ZLIB
                                 srv.sendPacketImmediately(netSettings)
                                 // Now connect to remote server with the negotiated codec
