@@ -60,19 +60,21 @@ class MicrosoftAuthActivity : Activity() {
 
     private suspend fun doAuth(code: String) {
         try {
-            // Step 1: Microsoft token
-            val msToken = postForm(
+            // Step 1: MS token
+            val msResp = postForm(
                 "https://login.live.com/oauth20_token.srf",
                 "client_id=$CLIENT_ID&code=$code&grant_type=authorization_code&redirect_uri=$REDIRECT"
-            ).getString("access_token")
+            )
+            val msToken = msResp.getString("access_token")
 
-            // Step 2: Xbox Live
+            // Step 2: XBL
             val xblResp = postJson(
                 "https://user.auth.xboxlive.com/user/authenticate",
-                """{"Properties":{"AuthMethod":"RPS","SiteName":"user.auth.xboxlive.com","RpsTicket":"$msToken"},"RelyingParty":"http://auth.xboxlive.com","TokenType":"JWT"}"""
+                """{"Properties":{"AuthMethod":"RPS","SiteName":"user.auth.xboxlive.com","RpsTicket":"d=$msToken"},"RelyingParty":"http://auth.xboxlive.com","TokenType":"JWT"}"""
             )
             val xblToken = xblResp.getString("Token")
-            val uhs = xblResp.getJSONObject("DisplayClaims").getJSONArray("xui").getJSONObject(0).getString("uhs")
+            val uhs = xblResp.getJSONObject("DisplayClaims")
+                .getJSONArray("xui").getJSONObject(0).getString("uhs")
 
             // Step 3: XSTS
             val xstsResp = postJson(
@@ -81,26 +83,31 @@ class MicrosoftAuthActivity : Activity() {
             )
             val xstsToken = xstsResp.getString("Token")
 
-            // Step 4: Minecraft
+            // Step 4: Minecraft token
             val mcResp = postJson(
                 "https://api.minecraftservices.com/authentication/login_with_xbox",
                 """{"identityToken":"XBL3.0 x=$uhs;$xstsToken"}"""
             )
             val mcToken = mcResp.getString("access_token")
 
-            // Step 5: Profile (gamertag)
+            // Step 5: Profile — with proper Bearer header
             val profile = getJson(
                 "https://api.minecraftservices.com/minecraft/profile",
                 mcToken
             )
-            val gamertag = profile.getString("name")
+
+            // Handle both "name" and "playerName" field names
+            val gamertag = when {
+                profile.has("name")       -> profile.getString("name")
+                profile.has("playerName") -> profile.getString("playerName")
+                else -> "Player"
+            }
 
             withContext(Dispatchers.Main) {
-                val result = Intent().apply {
+                setResult(RESULT_OK, Intent().apply {
                     putExtra(EXTRA_GAMERTAG, gamertag)
                     putExtra(EXTRA_TOKEN, mcToken)
-                }
-                setResult(RESULT_OK, result)
+                })
                 finish()
             }
         } catch (e: Exception) {
@@ -112,13 +119,23 @@ class MicrosoftAuthActivity : Activity() {
         }
     }
 
+    private fun readResponse(con: HttpsURLConnection): JSONObject {
+        val code = con.responseCode
+        val stream = if (code in 200..299) con.inputStream else con.errorStream
+        val body = stream.bufferedReader().readText()
+        if (code !in 200..299) throw Exception("HTTP $code: $body")
+        return JSONObject(body)
+    }
+
     private fun postForm(url: String, body: String): JSONObject {
         val con = URL(url).openConnection() as HttpsURLConnection
         con.requestMethod = "POST"
         con.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+        con.setRequestProperty("Accept", "application/json")
         con.doOutput = true
+        con.connectTimeout = 15000; con.readTimeout = 15000
         OutputStreamWriter(con.outputStream).use { it.write(body) }
-        return JSONObject(con.inputStream.bufferedReader().readText())
+        return readResponse(con)
     }
 
     private fun postJson(url: String, body: String): JSONObject {
@@ -127,15 +144,18 @@ class MicrosoftAuthActivity : Activity() {
         con.setRequestProperty("Content-Type", "application/json")
         con.setRequestProperty("Accept", "application/json")
         con.doOutput = true
+        con.connectTimeout = 15000; con.readTimeout = 15000
         OutputStreamWriter(con.outputStream).use { it.write(body) }
-        return JSONObject(con.inputStream.bufferedReader().readText())
+        return readResponse(con)
     }
 
     private fun getJson(url: String, token: String): JSONObject {
         val con = URL(url).openConnection() as HttpsURLConnection
         con.requestMethod = "GET"
         con.setRequestProperty("Authorization", "Bearer $token")
-        return JSONObject(con.inputStream.bufferedReader().readText())
+        con.setRequestProperty("Accept", "application/json")
+        con.connectTimeout = 15000; con.readTimeout = 15000
+        return readResponse(con)
     }
 
     override fun onDestroy() { super.onDestroy(); scope.cancel() }
