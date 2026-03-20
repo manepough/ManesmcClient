@@ -40,14 +40,14 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
         else WindowManager.LayoutParams.TYPE_PHONE
 
-        val density = resources.displayMetrics.density
-        val btnPx = (44 * density).toInt()
+        val d = resources.displayMetrics.density
+        val btnPx = (44 * d).toInt()
 
         val lp = WindowManager.LayoutParams(
             btnPx, btnPx, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; x = 24; y = (200 * density).toInt() }
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = 20; y = (200 * d).toInt() }
 
         val btn = object : TextView(this) {
             private var ox = 0f; private var oy = 0f
@@ -58,23 +58,20 @@ class OverlayService : Service() {
                 setTextColor(Color.WHITE)
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(Color.parseColor("#CC0D1117"))
-                    setStroke((2 * density).toInt(), Color.parseColor("#2563EB"))
+                    setColor(Color.parseColor("#CC1A56F0"))
+                    setStroke((2 * d).toInt(), Color.parseColor("#4A7FFF"))
                 }
             }
             override fun onTouchEvent(e: MotionEvent): Boolean {
                 when (e.action) {
-                    MotionEvent.ACTION_DOWN -> {
-                        ox = lp.x - e.rawX; oy = lp.y - e.rawY
-                        lx = e.rawX; ly = e.rawY; moved = false
-                    }
+                    MotionEvent.ACTION_DOWN -> { ox = lp.x - e.rawX; oy = lp.y - e.rawY; lx = e.rawX; ly = e.rawY; moved = false }
                     MotionEvent.ACTION_MOVE -> {
-                        if (Math.abs(e.rawX - lx) > 8 || Math.abs(e.rawY - ly) > 8) {
+                        if (Math.abs(e.rawX-lx) > 8 || Math.abs(e.rawY-ly) > 8) {
                             moved = true
                             val dm = resources.displayMetrics
-                            lp.x = (e.rawX + ox).toInt().coerceIn(0, dm.widthPixels - btnPx)
-                            lp.y = (e.rawY + oy).toInt().coerceIn(0, dm.heightPixels - btnPx)
-                            try { wm?.updateViewLayout(this, lp) } catch (_: Exception) {}
+                            lp.x = (e.rawX+ox).toInt().coerceIn(0, dm.widthPixels-btnPx)
+                            lp.y = (e.rawY+oy).toInt().coerceIn(0, dm.heightPixels-btnPx)
+                            try { wm?.updateViewLayout(this, lp) } catch (_:Exception) {}
                         }
                     }
                     MotionEvent.ACTION_UP -> if (!moved) toggle()
@@ -95,210 +92,225 @@ class OverlayService : Service() {
         else WindowManager.LayoutParams.TYPE_PHONE
 
         val dm = resources.displayMetrics
-        val density = dm.density
+        val d = dm.density
+
+        // Lumina-style: floating panel (not full screen)
+        val panelW = (dm.widthPixels * 0.72f).toInt()
+        val panelH = (dm.heightPixels * 0.80f).toInt()
 
         val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
-            type,
+            panelW, panelH, type,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START }
+        ).apply { gravity = Gravity.CENTER }
 
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#BB0A0A0F"))
+        // Root panel — rounded dark card like Lumina
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F0111827"))
+                cornerRadius = 16 * d
+                setStroke((1*d).toInt(), Color.parseColor("#1F2937"))
+            }
         }
 
-        val panelW = (dm.widthPixels * 0.70f).toInt()
-        val panel = LinearLayout(this).apply {
+        // ── HEADER ── blue bg with logo + title + close
+        val hdr = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            layoutParams = FrameLayout.LayoutParams(panelW, FrameLayout.LayoutParams.MATCH_PARENT)
+            setBackgroundColor(Color.parseColor("#1A56F0"))
+            setPadding((14*d).toInt(), (10*d).toInt(), (10*d).toInt(), (10*d).toInt())
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1A56F0"))
+                cornerRadii = floatArrayOf(16*d,16*d,16*d,16*d,0f,0f,0f,0f)
+            }
+        }
+        // Logo circle
+        val logo = TextView(this).apply {
+            text = "M"; textSize = 13f; gravity = Gravity.CENTER
+            setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply { shape=GradientDrawable.OVAL; setColor(Color.parseColor("#FFFFFF33")) }
+            val s = (28*d).toInt()
+            layoutParams = LinearLayout.LayoutParams(s, s).apply { marginEnd = (8*d).toInt() }
+        }
+        val appName = TextView(this).apply {
+            text = "MANES"; textSize = 14f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        // Category title (right of header)
+        val catTitle = TextView(this).apply {
+            text = currentTab; textSize = 16f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE); gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        // Close button — red circle like Lumina
+        val close = TextView(this).apply {
+            text = "✕"; textSize = 13f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+            background = GradientDrawable().apply { shape=GradientDrawable.OVAL; setColor(Color.parseColor("#EF4444")) }
+            val s = (26*d).toInt()
+            layoutParams = LinearLayout.LayoutParams(s, s)
+            setOnClickListener { closePanel() }
+        }
+        hdr.addView(logo); hdr.addView(appName); hdr.addView(catTitle); hdr.addView(close)
+        root.addView(hdr)
+
+        // ── BODY: left sidebar + right module list ──
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
         }
 
-        val density2 = density
-        val leftColW = (52 * density2).toInt()
-
-        // LEFT: accent bar + category icons
-        val leftCol = LinearLayout(this).apply {
+        // LEFT SIDEBAR — like Lumina
+        val sidebar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#0D1117"))
-            layoutParams = LinearLayout.LayoutParams(leftColW, LinearLayout.LayoutParams.MATCH_PARENT)
-            setPadding(0, (52 * density2).toInt(), 0, 0)
+            layoutParams = LinearLayout.LayoutParams((110*d).toInt(), LinearLayout.LayoutParams.MATCH_PARENT)
+            setPadding(0, (8*d).toInt(), 0, (8*d).toInt())
         }
 
-        // RIGHT: header + modules
+        // RIGHT MODULE LIST
         val rightCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#111827"))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
         }
-
-        val hdr = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding((16*density2).toInt(), (48*density2).toInt(), (16*density2).toInt(), (12*density2).toInt())
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-        val ttl = TextView(this).apply {
-            text = currentTab; textSize = 15f
-            setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val cls = TextView(this).apply {
-            text = "✕"; textSize = 17f; gravity = Gravity.CENTER
-            setTextColor(Color.parseColor("#6B7280"))
-            setPadding((8*density2).toInt(), 0, (8*density2).toInt(), 0)
-            setOnClickListener { closePanel() }
-        }
-        hdr.addView(ttl); hdr.addView(cls)
-        rightCol.addView(hdr)
-        rightCol.addView(View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1)
-            setBackgroundColor(Color.parseColor("#1F2937"))
-        })
-
-        val screenH = dm.heightPixels
         val scroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
             isScrollbarFadingEnabled = false
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding((10*density2).toInt(), (8*density2).toInt(), (10*density2).toInt(), (32*density2).toInt())
+            setPadding((10*d).toInt(), (8*d).toInt(), (10*d).toInt(), (20*d).toInt())
         }
         scroll.addView(content)
         rightCol.addView(scroll)
 
-        val categories = listOf("Combat","Visual","Motion","World","Misc")
-        val catIcons  = mapOf("Combat" to "⚔","Visual" to "👁","Motion" to "💨","World" to "🌍","Misc" to "⚙")
-        val tabBtns   = mutableMapOf<String, TextView>()
+        // Categories — Lumina style with icons
+        val categories = listOf(
+            Triple("Combat",   "✕",  "#F87171"),
+            Triple("Movement", "🏃", "#60A5FA"),
+            Triple("World",    "🌍", "#34D399"),
+            Triple("Render",   "👁", "#818CF8"),
+            Triple("Misc",     "⚙", "#22D3EE"),
+            Triple("Chat",     "💬", "#FBBF24"),
+            Triple("Config",   "🔧", "#A78BFA")
+        )
+        val tabBtns = mutableMapOf<String, LinearLayout>()
 
         fun refreshModules(cat: String) {
-            currentTab = cat; ttl.text = cat
-            tabBtns.forEach { (name, tv) ->
-                val on  = name == cat
-                val col = tabColor(name)
-                tv.setTextColor(if(on) Color.parseColor(col) else Color.parseColor("#4B5563"))
-                tv.setBackgroundColor(if(on) Color.parseColor(col.replace("#","#22")) else Color.TRANSPARENT)
+            currentTab = cat
+            catTitle.text = cat
+            tabBtns.forEach { (name, view) ->
+                val on = name == cat
+                val col = categories.find { it.first == name }?.third ?: "#6B7280"
+                view.setBackgroundColor(if(on) Color.parseColor(col.replace("#","#22")) else Color.TRANSPARENT)
+                (view.getChildAt(1) as? TextView)?.setTextColor(
+                    if(on) Color.parseColor(col) else Color.parseColor("#9CA3AF")
+                )
             }
             content.removeAllViews()
-            Modules.all.filter { it.category == cat }
-                .forEach { mod -> content.addView(moduleRow(mod, density2)) }
+            // Map category names
+            val modCat = when(cat) {
+                "Movement" -> "Motion"
+                "Render"   -> "Visual"
+                else -> cat
+            }
+            Modules.all.filter { it.category == modCat || it.category == cat }
+                .forEach { mod -> content.addView(moduleRow(mod, d)) }
         }
 
-        categories.forEach { cat ->
-            val tv = TextView(this).apply {
-                text = "${catIcons[cat]}\n${cat.take(3)}"
-                textSize = 9f; gravity = Gravity.CENTER
-                setTextColor(Color.parseColor("#4B5563"))
-                setPadding(0, (10*density2).toInt(), 0, (10*density2).toInt())
+        categories.forEach { (name, icon, color) ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding((12*d).toInt(), (10*d).toInt(), (12*d).toInt(), (10*d).toInt())
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { bottomMargin = (2*density2).toInt() }
-                setOnClickListener { refreshModules(cat) }
+                )
+                isClickable = true
             }
-            tabBtns[cat] = tv
-            leftCol.addView(tv)
+            val iconTv = TextView(this).apply {
+                text = icon; textSize = 14f; gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams((24*d).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT)
+                    .apply { marginEnd = (8*d).toInt() }
+            }
+            val labelTv = TextView(this).apply {
+                text = name; textSize = 12f
+                setTextColor(Color.parseColor("#9CA3AF"))
+            }
+            row.addView(iconTv); row.addView(labelTv)
+            row.setOnClickListener { refreshModules(name) }
+            tabBtns[name] = row
+            sidebar.addView(row)
         }
 
-        // 3px accent line on far left
-        val accentLine = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams((3*density2).toInt(), LinearLayout.LayoutParams.MATCH_PARENT)
-            setBackgroundColor(Color.parseColor("#2563EB"))
-        }
-        val divLine = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams((1*density2).toInt(), LinearLayout.LayoutParams.MATCH_PARENT)
+        body.addView(sidebar)
+        body.addView(View(this).apply {
+            layoutParams = LinearLayout.LayoutParams((1*d).toInt(), LinearLayout.LayoutParams.MATCH_PARENT)
             setBackgroundColor(Color.parseColor("#1F2937"))
-        }
-
-        panel.addView(accentLine)
-        panel.addView(leftCol)
-        panel.addView(divLine)
-        panel.addView(rightCol)
-        root.addView(panel)
-
-        // tap outside = close
-        root.setOnClickListener { closePanel() }
-        panel.setOnClickListener { }
+        })
+        body.addView(rightCol)
+        root.addView(body)
 
         refreshModules(currentTab)
+
+        // Tap outside closes
+        lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
         panelView = root
         try { wm?.addView(root, lp) } catch (e: Exception) { e.printStackTrace() }
     }
 
-    private fun moduleRow(mod: Module, density: Float): LinearLayout {
-        val cc = tabColor(mod.category)
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding((12*density).toInt(),(10*density).toInt(),(12*density).toInt(),(10*density).toInt())
-            background = GradientDrawable().apply {
-                cornerRadius = 10f * density
-                setColor(if(mod.enabled) Color.parseColor(cc.replace("#","#1A")) else Color.parseColor("#161C2A"))
-                setStroke((1*density).toInt(), if(mod.enabled) Color.parseColor(cc) else Color.parseColor("#1F2937"))
-            }
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                .apply { bottomMargin = (6*density).toInt() }
+    private fun moduleRow(mod: Module, d: Float): LinearLayout {
+        val cc = when(mod.category) {
+            "Combat" -> "#F87171"; "Visual" -> "#818CF8"; "Motion" -> "#60A5FA"
+            "World"  -> "#34D399"; "Misc"   -> "#22D3EE"; else -> "#9CA3AF"
         }
-
-        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding((14*d).toInt(), (12*d).toInt(), (12*d).toInt(), (12*d).toInt())
+            background = GradientDrawable().apply {
+                cornerRadius = 10f * d
+                setColor(if(mod.enabled) Color.parseColor(cc.replace("#","#1A")) else Color.parseColor("#1A1E2A"))
+                setStroke((1*d).toInt(), if(mod.enabled) Color.parseColor(cc) else Color.parseColor("#1F2937"))
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = (6*d).toInt() }
+        }
         val nameCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val nm = TextView(this).apply { text = mod.name; textSize = 12f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD }
-        val ds = TextView(this).apply { text = mod.desc; textSize = 10f; setTextColor(Color.parseColor("#6B7280")) }
-        nameCol.addView(nm); nameCol.addView(ds)
+        nameCol.addView(TextView(this).apply {
+            text = mod.name; textSize = 13f; setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
+        })
+        nameCol.addView(TextView(this).apply {
+            text = mod.desc; textSize = 10f; setTextColor(Color.parseColor("#6B7280"))
+        })
 
-        val sw = Switch(this).apply {
-            isChecked = mod.enabled
-            setOnCheckedChangeListener { _, v ->
-                mod.enabled = v
-                row.background = GradientDrawable().apply {
-                    cornerRadius = 10f * density
-                    setColor(if(v) Color.parseColor(cc.replace("#","#1A")) else Color.parseColor("#161C2A"))
-                    setStroke((1*density).toInt(), if(v) Color.parseColor(cc) else Color.parseColor("#1F2937"))
-                }
+        // Gear icon on right like Lumina
+        val gear = TextView(this).apply {
+            text = "⚙"; textSize = 14f; gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#4B5563"))
+            setPadding((8*d).toInt(), 0, 0, 0)
+        }
+
+        // Toggle on tap
+        row.isClickable = true
+        row.setOnClickListener {
+            mod.enabled = !mod.enabled
+            row.background = GradientDrawable().apply {
+                cornerRadius = 10f * d
+                setColor(if(mod.enabled) Color.parseColor(cc.replace("#","#1A")) else Color.parseColor("#1A1E2A"))
+                setStroke((1*d).toInt(), if(mod.enabled) Color.parseColor(cc) else Color.parseColor("#1F2937"))
             }
+            gear.setTextColor(if(mod.enabled) Color.parseColor(cc) else Color.parseColor("#4B5563"))
         }
-        top.addView(nameCol); top.addView(sw)
-        row.addView(top)
 
-        when (mod) {
-            is HitboxModule   -> row.addView(sliderRow("Scale",  1f, 4f, mod.scale,           density) { mod.scale   = it })
-            is ReachModule    -> row.addView(sliderRow("Reach",  3f, 8f, mod.reach,            density) { mod.reach   = it })
-            is KillAuraModule -> { row.addView(sliderRow("Range", 2f, 6f, mod.range,           density) { mod.range   = it })
-                                   row.addView(sliderRow("Delay", 50f,500f,mod.delayMs.toFloat(),density) { mod.delayMs = it.toInt() }) }
-            is TimerModule    -> row.addView(sliderRow("Speed",  0.5f,3f, mod.speed,           density) { mod.speed   = it })
-        }
-        return row
-    }
-
-    private fun sliderRow(label: String, min: Float, max: Float, init: Float, density: Float, onChange: (Float)->Unit): LinearLayout {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                .apply { topMargin = (6*density).toInt() }
-        }
-        val lbl = TextView(this).apply {
-            text = "$label: ${"%.1f".format(init)}"; textSize = 10f
-            setTextColor(Color.parseColor("#60A5FA")); minWidth = (130*density).toInt()
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                .apply { marginEnd = (8*density).toInt() }
-        }
-        val sb = SeekBar(this).apply {
-            this.max = 100
-            progress = ((init-min)/(max-min)*100).toInt().coerceIn(0,100)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar, p: Int, u: Boolean) {
-                    val v = min + (max-min)*p/100f; lbl.text = "$label: ${"%.1f".format(v)}"; onChange(v)
-                }
-                override fun onStartTrackingTouch(sb: SeekBar) {}
-                override fun onStopTrackingTouch(sb: SeekBar) {}
-            })
-        }
-        row.addView(lbl); row.addView(sb)
+        row.addView(nameCol); row.addView(gear)
         return row
     }
 
@@ -314,11 +326,6 @@ class OverlayService : Service() {
         btnView?.let { try { wm?.removeView(it) } catch (_:Exception){} }
     }
     override fun onBind(i: Intent?): IBinder? = null
-
-    private fun tabColor(cat: String) = when(cat) {
-        "Combat" -> "#F87171"; "Visual" -> "#818CF8"; "Motion" -> "#FBBF24"
-        "World"  -> "#34D399"; else     -> "#22D3EE"
-    }
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= 26) {
