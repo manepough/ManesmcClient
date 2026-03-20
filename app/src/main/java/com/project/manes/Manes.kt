@@ -43,7 +43,6 @@ import io.netty.bootstrap.Bootstrap
 import io.netty.bootstrap.ServerBootstrap
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
-import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.nio.NioEventLoopGroup
 import io.netty.channel.socket.nio.NioDatagramChannel
 import io.netty.util.internal.PlatformDependent
@@ -55,8 +54,6 @@ import org.cloudburstmc.protocol.bedrock.BedrockClientSession
 import org.cloudburstmc.protocol.bedrock.BedrockPong
 import org.cloudburstmc.protocol.bedrock.BedrockServerSession
 import org.cloudburstmc.protocol.bedrock.codec.BedrockCodec
-import org.cloudburstmc.protocol.bedrock.codec.v291.Bedrock_v291
-import org.cloudburstmc.protocol.bedrock.codec.v748.Bedrock_v748
 import org.cloudburstmc.protocol.bedrock.netty.initializer.BedrockClientInitializer
 import org.cloudburstmc.protocol.bedrock.netty.initializer.BedrockServerInitializer
 import org.cloudburstmc.protocol.bedrock.packet.*
@@ -332,39 +329,44 @@ object Modules {
 
 // Dynamic codec picker — mirrors Lumina's ProtocolHelper.cpp
 object ProtocolHelper {
-    // Ordered list of supported codecs — add newer ones as library updates
     private val codecs: List<BedrockCodec> by lazy {
-        try {
-            val list = mutableListOf<BedrockCodec>()
-            // Try to load all known codecs from Beta6
-            for (v in listOf(291,313,332,340,354,361,388,389,390,407,408,419,422,428,431,440,448,
-                             465,471,475,486,503,527,534,544,545,554,557,560,567,568,575,582,589,
-                             594,618,622,630,649,662,671,685,686,687,690,712,729,748)) {
-                try {
-                    val cls = Class.forName("org.cloudburstmc.protocol.bedrock.codec.v$v.Bedrock_v$v")
-                    val codec = cls.getField("CODEC").get(null) as BedrockCodec
-                    list.add(codec)
-                } catch (_: Exception) {}
-            }
-            if (list.isEmpty()) list.add(Bedrock_v748.CODEC)
-            list.sortBy { it.protocolVersion }
-            list
-        } catch (_: Exception) {
-            listOf(Bedrock_v748.CODEC)
+        val list = mutableListOf<BedrockCodec>()
+        // All known protocol versions — reflection finds whichever ones exist in Beta6
+        val versions = listOf(
+            291,313,332,340,354,361,388,389,390,407,408,419,422,428,431,440,448,
+            465,471,475,486,503,527,534,544,545,554,557,560,567,568,575,582,589,
+            594,618,622,630,649,662,671,685,686,687,690,712,729,748,766,776,800,
+            818,819,829,844,848,859,860,866,885,898,904,916,924
+        )
+        for (v in versions) {
+            try {
+                val cls = Class.forName("org.cloudburstmc.protocol.bedrock.codec.v$v.Bedrock_v$v")
+                val codec = cls.getField("CODEC").get(null) as BedrockCodec
+                list.add(codec)
+            } catch (_: Exception) {}
         }
+        // Fallback — use BedrockProtocol default if nothing found
+        if (list.isEmpty()) {
+            try {
+                val cls = Class.forName("org.cloudburstmc.protocol.bedrock.codec.BedrockProtocol")
+                val codec = cls.getField("DEFAULT_BEDROCK_CODEC").get(null) as BedrockCodec
+                list.add(codec)
+            } catch (_: Exception) {}
+        }
+        list.sortBy { it.protocolVersion }
+        list.ifEmpty { listOf() }
     }
 
-    fun pickCodec(clientProtocol: Int): BedrockCodec {
-        // Pick closest codec that doesn't exceed client protocol — same as Lumina
-        var best = codecs.first()
+    fun pickCodec(clientProtocol: Int): BedrockCodec? {
+        var best: BedrockCodec? = null
         for (codec in codecs) {
             if (codec.protocolVersion <= clientProtocol) best = codec
             else break
         }
-        return best
+        return best ?: codecs.lastOrNull()
     }
 
-    val defaultCodec: BedrockCodec get() = codecs.last()
+    val defaultCodec: BedrockCodec? get() = codecs.lastOrNull()
 }
 
 // Relay session — mirrors LuminaRelaySession
@@ -378,6 +380,8 @@ class RelaySession {
             serverSession?.let { srv ->
                 value.codec = srv.codec
                 // Sync definitions like Lumina does
+                try { value.blockDefinitions = srv.blockDefinitions } catch (_: Exception) {}
+                try { value.itemDefinitions = srv.itemDefinitions } catch (_: Exception) {}
             }
             // Flush queued packets
             var p = queue.poll()
@@ -409,9 +413,11 @@ object ManesRelay {
         val ses = RelaySession().also { active = it }
         val group = NioEventLoopGroup()
 
-        // Use protocol 898 / 1.21.130 like Lumina — NOT 924
-        // Dynamic codec handles whatever version client actually uses
-        val defaultCodec = ProtocolHelper.defaultCodec
+        // Use highest available codec as default
+        val defaultCodec = ProtocolHelper.defaultCodec ?: run {
+            android.util.Log.e("ManesRelay", "No codec found — library may not support this version")
+            return
+        }
         val pong = BedrockPong()
             .edition("MCPE")
             .motd("Manes >> $displayName")
@@ -443,12 +449,12 @@ object ManesRelay {
                         override fun handlePacket(pkt: BedrockPacket): PacketSignal {
                             // Handle RequestNetworkSettingsPacket — pick best codec dynamically
                             if (pkt is RequestNetworkSettingsPacket) {
-                                val codec = ProtocolHelper.pickCodec(pkt.protocolVersion)
+                                val codec = ProtocolHelper.pickCodec(pkt.protocolVersion) ?: defaultCodec
                                 srv.codec = codec
                                 // Send NetworkSettingsPacket back to client
                                 val netSettings = NetworkSettingsPacket()
                                 netSettings.compressionThreshold = 512
-                                netSettings.compressionAlgorithm = org.cloudburstmc.protocol.bedrock.data.PacketCompressionAlgorithm.ZLIB
+                                netSettings.compressionAlgorithm = PacketCompressionAlgorithm.ZLIB
                                 srv.sendPacketImmediately(netSettings)
                                 // Now connect to remote server with the negotiated codec
                                 Bootstrap()
@@ -534,9 +540,24 @@ class MainActivity : ComponentActivity() {
         val wv = Store.loadWorlds(this)
         val rv = Store.loadRealms(this)
 
+        // Silent refresh — if we have a refresh token, get a new MC token silently
+        // so users never need to log in again after first time
+        val gamertag = Store.loadStr(this, "gamertag")
+        val hasRefreshToken = Store.loadStr(this, "ms_refresh_token").isNotBlank()
+        if (gamertag.isNotBlank() && hasRefreshToken) {
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val result = MicrosoftAuthActivity.tryRefresh(this@MainActivity)
+                    if (result != null) {
+                        Store.saveStr(this@MainActivity, "gamertag", result.first)
+                        Store.saveStr(this@MainActivity, "mc_token", result.second)
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
         setContent {
             AppTheme {
-                // Always go straight to main app — no forced login screen
                 ManesApp(
                     sv, wv, rv,
                     Store.loadStr(this, "gamertag"),
@@ -544,7 +565,7 @@ class MainActivity : ComponentActivity() {
                     { Store.saveWorlds(this, it) },
                     { Store.saveRealms(this, it) },
                     { addr, port, name -> doLaunch(addr, port, name) },
-                    { Store.saveStr(this,"gamertag",""); Store.saveStr(this,"mc_token",""); recreate() },
+                    { Store.saveStr(this,"gamertag",""); Store.saveStr(this,"mc_token",""); Store.saveStr(this,"ms_refresh_token",""); recreate() },
                     onStartLogin = { authLauncher.launch(Intent(this, MicrosoftAuthActivity::class.java)) }
                 )
             }
@@ -653,7 +674,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
 
             // TOP NAV — "Lumina | Home About Realms Settings" exactly like Lumina
             Row(
-                Modifier.fillMaxWidth().background(Surf).padding(start=16.dp, end=16.dp).padding(top=44.dp),
+                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp, top=44.dp, bottom=0.dp),
                 verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.SpaceBetween
             ) {
@@ -671,12 +692,12 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
                             else Spacer(Modifier.height(5.5.dp))
                         }
                     }
-                 }
+                }
             }
 
             // PAGE CONTENT
             when(navPage) {
-                "Home" -> {
+                 "Home" -> {
                     // Two-column Lumina layout
                     Row(Modifier.weight(1f)) {
                         // LEFT COLUMN — pill tabs + list
@@ -1000,9 +1021,9 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
                     Box(
                         Modifier.size(36.dp).clip(CircleShape).background(Surf)
                             .clickable { onClose() },
-            contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.Close, null, tint = TxtM, modifier = Modifier.size(18.dp))
+                  Icon(Icons.Default.Close, null, tint = TxtM, modifier = Modifier.size(18.dp))
                     }
                 }
 
