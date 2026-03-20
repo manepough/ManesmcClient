@@ -540,7 +540,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
 
             // TOP NAV — "Lumina | Home About Realms Settings" exactly like Lumina
             Row(
-                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp, top=44.dp, bottom=0.dp),
+                Modifier.fillMaxWidth().background(Surf).padding(start=16.dp, end=16.dp).padding(top=44.dp),
                 verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.SpaceBetween
             ) {
