@@ -380,8 +380,6 @@ class RelaySession {
             serverSession?.let { srv ->
                 value.codec = srv.codec
                 // Sync definitions like Lumina does
-                try { value.blockDefinitions = srv.blockDefinitions } catch (_: Exception) {}
-                try { value.itemDefinitions = srv.itemDefinitions } catch (_: Exception) {}
             }
             // Flush queued packets
             var p = queue.poll()
@@ -454,7 +452,7 @@ object ManesRelay {
                                 // Send NetworkSettingsPacket back to client
                                 val netSettings = NetworkSettingsPacket()
                                 netSettings.compressionThreshold = 512
-                                netSettings.compressionAlgorithm = PacketCompressionAlgorithm.ZLIB
+                                netSettings.compressionAlgorithm = org.cloudburstmc.protocol.bedrock.data.PacketCompressionAlgorithm.ZLIB
                                 srv.sendPacketImmediately(netSettings)
                                 // Now connect to remote server with the negotiated codec
                                 Bootstrap()
@@ -545,15 +543,17 @@ class MainActivity : ComponentActivity() {
         val gamertag = Store.loadStr(this, "gamertag")
         val hasRefreshToken = Store.loadStr(this, "ms_refresh_token").isNotBlank()
         if (gamertag.isNotBlank() && hasRefreshToken) {
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    val result = MicrosoftAuthActivity.tryRefresh(this@MainActivity)
-                    if (result != null) {
-                        Store.saveStr(this@MainActivity, "gamertag", result.first)
-                        Store.saveStr(this@MainActivity, "mc_token", result.second)
-                    }
-                } catch (_: Exception) {}
+            Thread {
+    try {
+        kotlinx.coroutines.runBlocking {
+            val result = MicrosoftAuthActivity.tryRefresh(this@MainActivity)
+            if (result != null) {
+                Store.saveStr(this@MainActivity, "gamertag", result.first)
+                Store.saveStr(this@MainActivity, "mc_token", result.second)
             }
+        }
+    } catch (_: Exception) {}
+}.apply { isDaemon = true }.start()
         }
 
         setContent {
@@ -674,7 +674,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
 
             // TOP NAV — "Lumina | Home About Realms Settings" exactly like Lumina
             Row(
-                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp, top=44.dp, bottom=0.dp),
+                Modifier.fillMaxWidth().background(Surf).padding(start=16.dp, end=16.dp).padding(top=44.dp),
                 verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.SpaceBetween
             ) {
