@@ -82,10 +82,7 @@ class MicrosoftAuthActivity : Activity() {
             val mcToken = mcResp.getString("access_token")
 
             // Try Java profile (graceful fallback)
-            val finalTag = try {
-                val profile = getJsonStatic("https://api.minecraftservices.com/minecraft/profile", mcToken)
-                if (profile.has("name")) profile.getString("name") else xboxTag
-            } catch (_: Exception) { xboxTag }
+            val finalTag = xboxTag
 
             return Pair(finalTag, mcToken)
         }
