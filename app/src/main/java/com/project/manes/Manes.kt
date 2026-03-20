@@ -382,14 +382,34 @@ object ManesRelay {
 
 // MainActivity
 class MainActivity : ComponentActivity() {
-    private val defServers=listOf(ServerEntry("hive","The Hive","geo.hivebedrock.network",19132),ServerEntry("cube","CubeCraft","mco.cubecraft.net",19132),ServerEntry("lbsg","Lifeboat","play.lbsg.net",19132),ServerEntry("mnpl","Mineplex","pe.mineplex.com",19132),ServerEntry("neth","NetherGames","play.nethergames.org",19132))
+    private val defServers = listOf(
+        ServerEntry("hive","The Hive","geo.hivebedrock.network",19132),
+        ServerEntry("cube","CubeCraft","mco.cubecraft.net",19132),
+        ServerEntry("lbsg","Lifeboat","play.lbsg.net",19132),
+        ServerEntry("mnpl","Mineplex","pe.mineplex.com",19132),
+        ServerEntry("neth","NetherGames","play.nethergames.org",19132)
+    )
+
+    private val authLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val tag = result.data?.getStringExtra(MicrosoftAuthActivity.EXTRA_GAMERTAG) ?: ""
+            val tok = result.data?.getStringExtra(MicrosoftAuthActivity.EXTRA_TOKEN) ?: ""
+            if (tag.isNotBlank()) {
+                Store.saveStr(this, "gamertag", tag)
+                Store.saveStr(this, "mc_token", tok)
+                recreate()
+            }
+        }
+    }
+
     override fun onCreate(s: Bundle?) {
         super.onCreate(s)
-        // Ask for overlay permission on first launch
         if (!OverlayService.hasPermission(this)) {
             android.app.AlertDialog.Builder(this)
                 .setTitle("Overlay Permission Needed")
-                .setMessage("Manes needs \"Display over other apps\" permission to show the module button inside Minecraft.")
+                .setMessage("Manes needs \"Display over other apps\" to show modules in Minecraft.")
                 .setPositiveButton("Allow") { _, _ ->
                     startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                         android.net.Uri.parse("package:$packageName")))
@@ -397,33 +417,54 @@ class MainActivity : ComponentActivity() {
                 .setNegativeButton("Skip") { d, _ -> d.dismiss() }
                 .create().show()
         }
-        val sv=Store.loadServers(this).ifEmpty{defServers.toMutableList()}
-        val wv=Store.loadWorlds(this)
-        val rv=Store.loadRealms(this)
-        val loggedIn=Store.loadStr(this,"gamertag").isNotBlank()
-        setContent { AppTheme {
-            if(!loggedIn) LoginScreen{gamertag->Store.saveStr(this,"gamertag",gamertag);recreate()}
-            else ManesApp(sv,wv,rv,Store.loadStr(this,"gamertag"),{Store.saveServers(this,it)},{Store.saveWorlds(this,it)},{Store.saveRealms(this,it)},{addr,port,name->doLaunch(addr,port,name)},{Store.saveStr(this,"gamertag","");recreate()})
-        }}
-    }
-    override fun onDestroy() { super.onDestroy(); ManesRelay.stop(); OverlayService.stop(this) }
-    private fun doLaunch(addr: String, port: Int, name: String) {
-        Thread{try{ManesRelay.start(addr,port,name)}catch(e:Exception){e.printStackTrace()}}.apply{isDaemon=true}.start()
-        if (OverlayService.hasPermission(this)) {
-            OverlayService.start(this)
+        val sv = Store.loadServers(this).ifEmpty { defServers.toMutableList() }
+        val wv = Store.loadWorlds(this)
+        val rv = Store.loadRealms(this)
+        val gamertag = Store.loadStr(this, "gamertag")
+        val loggedIn = gamertag.isNotBlank()
+
+        setContent {
+            AppTheme {
+                if (!loggedIn) {
+                    SplashScreen(
+                        onStartMicrosoftLogin = {
+                            authLauncher.launch(Intent(this, MicrosoftAuthActivity::class.java))
+                        }
+                    )
+                } else {
+                    ManesApp(
+                        sv, wv, rv, gamertag,
+                        { Store.saveServers(this, it) },
+                        { Store.saveWorlds(this, it) },
+                        { Store.saveRealms(this, it) },
+                        { addr, port, name -> doLaunch(addr, port, name) },
+                        {
+                            Store.saveStr(this, "gamertag", "")
+                            Store.saveStr(this, "mc_token", "")
+                            recreate()
+                        }
+                    )
+                }
+            }
         }
+    }
+
+    override fun onDestroy() { super.onDestroy(); ManesRelay.stop(); OverlayService.stop(this) }
+
+    private fun doLaunch(addr: String, port: Int, name: String) {
+        Thread { try { ManesRelay.start(addr, port, name) } catch (e: Exception) { e.printStackTrace() } }
+            .apply { isDaemon = true }.start()
+        if (OverlayService.hasPermission(this)) OverlayService.start(this)
         Handler(Looper.getMainLooper()).postDelayed({
             try {
                 startActivity(Intent(Intent.ACTION_VIEW,
                     Uri.parse("minecraft://?addExternalServer=Manes+Proxy+${Uri.encode(name)}%7C127.0.0.1:19132")))
-            } catch(_:Exception) {
-                // fallback: open Minecraft directly
+            } catch (_: Exception) {
                 try {
-                    val mc = packageManager.getLaunchIntentForPackage("com.mojang.minecraftpe")
-                    if (mc != null) startActivity(mc)
-                } catch(_:Exception) {}
+                    packageManager.getLaunchIntentForPackage("com.mojang.minecraftpe")?.let { startActivity(it) }
+                } catch (_: Exception) {}
             }
-            android.widget.Toast.makeText(this, "Manes proxy started! In Minecraft: Servers tab, join 'Manes Proxy $name'", android.widget.Toast.LENGTH_LONG).show()
+            android.widget.Toast.makeText(this, "Join 'Manes Proxy $name' in Minecraft Servers tab", android.widget.Toast.LENGTH_LONG).show()
         }, 1200)
     }
 }
@@ -434,91 +475,51 @@ class MainActivity : ComponentActivity() {
     MaterialTheme(colorScheme=darkColorScheme(background=BG,surface=Surf,primary=acc,onPrimary=Color.White,onBackground=TxtP,onSurface=TxtP),content=c)
 }
 
-// Login screen — exact Lumina splash style
-@Composable fun LoginScreen(onLogin: (String)->Unit) {
-    var gamertag by remember{mutableStateOf("")}
-    var loading by remember{mutableStateOf(false)}
-    var error by remember{mutableStateOf("")}
-    var showForm by remember{mutableStateOf(false)}
-
+// Splash screen — Lumina style, Microsoft login on Client Mode tap
+@Composable fun SplashScreen(onStartMicrosoftLogin: () -> Unit) {
     Box(Modifier.fillMaxSize().background(Color(0xFF12121A))) {
-        // Wave lines background like Lumina
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width; val h = size.height
-            val waveColor = Color(0xFF2A3A2A).copy(alpha = 0.6f)
-            val pts = listOf(0.42f, 0.47f, 0.52f, 0.57f)
-            pts.forEachIndexed { i, frac ->
+            listOf(0.42f, 0.47f, 0.52f, 0.57f).forEachIndexed { i, frac ->
                 val y = h * frac
                 val path = androidx.compose.ui.graphics.Path().apply {
                     moveTo(0f, y)
                     cubicTo(w*0.25f, y-30f+(i*8f), w*0.5f, y+20f-(i*5f), w*0.75f, y-15f+(i*6f))
                     cubicTo(w*0.85f, y+10f, w*0.95f, y-5f, w, y+8f)
                 }
-                drawPath(path, waveColor.copy(alpha = 0.4f - i*0.08f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.2f))
+                drawPath(path, Color(0xFF2A3A2A).copy(alpha = 0.4f - i*0.08f),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.2f))
             }
         }
-
-        if (!showForm) {
-            // Lumina-style mode select — centered vertically in lower half
-            Column(
-                Modifier.fillMaxSize().padding(horizontal=24.dp),
-                horizontalAlignment=Alignment.CenterHorizontally,
-                verticalArrangement=Arrangement.Center
-            ) {
-                Text("PROJECT MANES", fontSize=18.sp, fontWeight=FontWeight.Bold, color=TxtP, letterSpacing=3.sp)
-                Text("Select Mode", fontSize=12.sp, color=TxtM, modifier=Modifier.padding(top=4.dp, bottom=32.dp))
-
-                Row(horizontalArrangement=Arrangement.spacedBy(14.dp)) {
-                    // Client Mode — active card (Lumina style: dark bg, visible border)
-                    Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF222228))
-                        .border(1.dp, Color(0xFF3A3A45), RoundedCornerShape(14.dp))
-                        .clickable{showForm=true}.padding(18.dp)) {
-                        Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                            Icon(Icons.Default.GridView, null, tint=TxtM, modifier=Modifier.size(22.dp))
-                            Column {
-                                Text("Client Mode", fontSize=14.sp, fontWeight=FontWeight.Medium, color=TxtP)
-                                Text("Manes For Mobile", fontSize=11.sp, color=TxtM)
-                            }
-                        }
-                    }
-                    // Remote Link — inactive
-                    Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF222228))
-                        .border(1.dp, Color(0xFF3A3A45), RoundedCornerShape(14.dp))
-                        .padding(18.dp)) {
-                        Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                            Icon(Icons.Default.Link, null, tint=TxtM, modifier=Modifier.size(22.dp))
-                            Column {
-                                Text("Remote Link", fontSize=14.sp, fontWeight=FontWeight.Medium, color=TxtM)
-                                Text("Connect to external systems", fontSize=11.sp, color=TxtM.a(0.5f))
-                            }
-                        }
+        Column(
+            Modifier.fillMaxSize().padding(horizontal=28.dp),
+            horizontalAlignment=Alignment.CenterHorizontally,
+            verticalArrangement=Arrangement.Center
+        ) {
+            Text("PROJECT MANES", fontSize=18.sp, fontWeight=FontWeight.Bold, color=TxtP, letterSpacing=3.sp)
+            Text("Select Mode", fontSize=12.sp, color=TxtM, modifier=Modifier.padding(top=4.dp, bottom=32.dp))
+            Row(horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF222228)).border(1.dp, Color(0xFF3A3A45), RoundedCornerShape(14.dp))
+                    .clickable { onStartMicrosoftLogin() }.padding(18.dp)) {
+                    Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                        Icon(Icons.Default.GridView, null, tint=TxtM, modifier=Modifier.size(22.dp))
+                        Text("Client Mode", fontSize=14.sp, fontWeight=FontWeight.Medium, color=TxtP)
+                        Text("Manes For Mobile", fontSize=11.sp, color=TxtM)
                     }
                 }
-
-                Spacer(Modifier.height(8.dp))
-                Text("© Project Manes 2025", fontSize=10.sp, color=TxtM.a(0.4f))
-            }
-        } else {
-            // Login form
-            Column(Modifier.fillMaxSize().padding(horizontal=28.dp), horizontalAlignment=Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
-                Text("Sign In", fontSize=24.sp, fontWeight=FontWeight.SemiBold, color=TxtP)
-                Text("Enter your Minecraft gamertag", fontSize=13.sp, color=TxtM, modifier=Modifier.padding(top=6.dp, bottom=28.dp))
-                OutlinedTextField(gamertag,{gamertag=it},label={Text("Gamertag",fontSize=12.sp)},
-                    modifier=Modifier.fillMaxWidth(),singleLine=true,
-                    colors=OutlinedTextFieldDefaults.colors(focusedTextColor=TxtP,unfocusedTextColor=TxtP,focusedBorderColor=TxtM,unfocusedBorderColor=Surf2,focusedLabelColor=TxtM,unfocusedLabelColor=TxtM.a(0.6f),cursorColor=TxtP))
-                if(error.isNotBlank()){Spacer(Modifier.height(8.dp));Text(error,fontSize=12.sp,color=RedC)}
-                Spacer(Modifier.height(16.dp))
-                Button(onClick={if(gamertag.isBlank())error="Enter your gamertag" else{loading=true;onLogin(gamertag.trim())}},
-                    modifier=Modifier.fillMaxWidth().height(50.dp),shape=RoundedCornerShape(10.dp),
-                    colors=ButtonDefaults.buttonColors(containerColor=StartBtn)){
-                    if(loading)CircularProgressIndicator(color=StartBtnTxt,modifier=Modifier.size(18.dp),strokeWidth=2.dp)
-                    else Text("Continue",fontSize=14.sp,fontWeight=FontWeight.SemiBold,color=StartBtnTxt)
+                Box(Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xFF1A1A20)).border(1.dp, Color(0xFF2A2A30), RoundedCornerShape(14.dp))
+                    .padding(18.dp)) {
+                    Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                        Icon(Icons.Default.Link, null, tint=TxtM.a(0.4f), modifier=Modifier.size(22.dp))
+                        Text("Remote Link", fontSize=14.sp, fontWeight=FontWeight.Medium, color=TxtM.a(0.5f))
+                        Text("Connect to external systems", fontSize=11.sp, color=TxtM.a(0.3f))
+                    }
                 }
-                Spacer(Modifier.height(10.dp))
-                TextButton(onClick={showForm=false},modifier=Modifier.fillMaxWidth()){Text("← Back",color=TxtM,fontSize=13.sp)}
             }
+            Spacer(Modifier.height(10.dp))
+            Text("© Project Manes 2025", fontSize=10.sp, color=TxtM.a(0.3f))
         }
     }
 }
@@ -551,7 +552,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
 
             // TOP NAV — "Lumina | Home About Realms Settings" exactly like Lumina
             Row(
-                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp).padding(top=44.dp),
+                Modifier.fillMaxWidth().background(Surf).padding(horizontal=16.dp, top=44.dp, bottom=0.dp),
                 verticalAlignment=Alignment.CenterVertically,
                 horizontalArrangement=Arrangement.SpaceBetween
             ) {
@@ -647,7 +648,7 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
 
                             // Selected server info
                             Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                                Icon(Icons.Default.PlayArrow, null, tint=TxtM, modifier=Modifier.size(14.dp))
+                                 Icon(Icons.Default.PlayArrow, null, tint=TxtM, modifier=Modifier.size(14.dp))
                                 Text("Selected Server", fontSize=12.sp, color=TxtM, fontWeight=FontWeight.Medium)
                             }
                             Spacer(Modifier.height(8.dp))
@@ -725,27 +726,6 @@ fun ManesApp(initSrv:List<ServerEntry>,initWld:List<WorldEntry>,initRlm:List<Rea
 
                 "Settings" -> SettingsScreen(onLogout=onLogout)
             }
-        }
-
-        // Draggable module button
-        Box(
-            Modifier
-                .offset{ IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(Surf2)
-                .border(1.dp, Color(0xFF4A4A55), CircleShape)
-                .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        dragX = (dragX + dragAmount.x).coerceIn(0f, (size.width - 44.dp.toPx()))
-                        dragY = (dragY + dragAmount.y).coerceIn(0f, (size.height - 44.dp.toPx()))
-                    }
-                }
-                .clickable { showMods = true },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Default.GridView, null, tint=TxtM, modifier=Modifier.size(20.dp))
         }
     }
 
